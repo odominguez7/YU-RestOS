@@ -179,6 +179,7 @@ const OuraProfile = () => {
   const [workouts, setWorkouts] = useState<any[]>([]);
   const [stressData, setStressData] = useState<any[]>([]);
   const [cardioAge, setCardioAge] = useState<any[]>([]);
+  const [todayData, setTodayData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<Interval>("ALL");
@@ -190,13 +191,15 @@ const OuraProfile = () => {
       api.get("/api/oura/workouts"),
       api.get("/api/oura/stress-detail"),
       api.get("/api/oura/cardiovascular-age"),
+      api.get("/api/oura/today"),
     ])
-      .then(([sh, st, wo, sd, ca]) => {
+      .then(([sh, st, wo, sd, ca, td]) => {
         setSleepHistory(sh.data ?? []);
         setStats(st);
         setWorkouts(wo.data ?? []);
         setStressData(sd.data ?? []);
         setCardioAge(ca.data ?? []);
+        setTodayData(td);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -309,16 +312,41 @@ const OuraProfile = () => {
           </div>
         </Glass>
 
-        {/* ═══════ 2. HERO RING GAUGES ═══════ */}
-        {latest && (
-          <div className="grid grid-cols-3 gap-4 md:gap-8 justify-items-center py-2"
-            style={{ animation: "oura-fade-up .7s ease-out 100ms both" }}>
-            <RingGauge value={latest.sleepScore ?? 0} max={100} label="Sleep" color={scoreClr(latest.sleepScore ?? 0)}
-              avg={stats?.avgSleepScore} delay={100} />
-            <RingGauge value={latest.readinessScore ?? 0} max={100} label="Readiness" color={scoreClr(latest.readinessScore ?? 0)}
-              avg={stats?.avgReadiness} delay={200} />
-            <RingGauge value={latest.hrv ?? 0} max={120} label="HRV" unit="ms" color="#8B5CF6"
-              avg={stats?.avgHRV} delay={300} />
+        {/* ═══════ 2. HERO RING GAUGES (TODAY'S LIVE DATA) ═══════ */}
+        {(todayData || latest) && (
+          <div style={{ animation: "oura-fade-up .7s ease-out 100ms both" }}>
+            {todayData?.latestHeartRate && (
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <Heart className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+                <span className="text-xs text-slate-400">Live HR: <span className="text-red-400 font-bold">{todayData.latestHeartRate} bpm</span></span>
+                {todayData.latestHeartRateTime && (
+                  <span className="text-[10px] text-slate-600">({new Date(todayData.latestHeartRateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+                )}
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-4 md:gap-8 justify-items-center py-2">
+              <RingGauge value={todayData?.sleepScore ?? latest?.sleepScore ?? 0} max={100} label="Sleep" color={scoreClr(todayData?.sleepScore ?? latest?.sleepScore ?? 0)}
+                avg={stats?.avgSleepScore} delay={100} />
+              <RingGauge value={todayData?.readinessScore ?? latest?.readinessScore ?? 0} max={100} label="Readiness" color={scoreClr(todayData?.readinessScore ?? latest?.readinessScore ?? 0)}
+                avg={stats?.avgReadiness} delay={200} />
+              <RingGauge value={todayData?.hrv ?? latest?.hrv ?? 0} max={120} label="HRV" unit="ms" color="#8B5CF6"
+                avg={stats?.avgHRV} delay={300} />
+            </div>
+            {todayData && (
+              <div className="flex items-center justify-center gap-4 mt-3 text-[10px] text-slate-500">
+                <span>Today: Activity <span className="text-white font-bold">{todayData.activityScore ?? "—"}</span></span>
+                <span>&middot;</span>
+                <span>Steps <span className="text-white font-bold">{(todayData.steps ?? 0).toLocaleString()}</span></span>
+                <span>&middot;</span>
+                <span>Stress <span className="text-white font-bold">{todayData.stressMin ?? "—"} min</span></span>
+                {todayData.vascularAge && (
+                  <>
+                    <span>&middot;</span>
+                    <span>Vascular Age <span className="text-emerald-400 font-bold">{todayData.vascularAge}</span></span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 

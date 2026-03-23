@@ -251,6 +251,62 @@ def get_heart_rate_detail():
     return {"data": data}
 
 
+@router.get("/today")
+def get_today():
+    """Today's real-time scores + latest heart rate."""
+    from datetime import datetime
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Today's scores from daily data
+    today_sleep = _score_by_day.get(today, None)
+    today_readiness = _readiness_by_day.get(today, {})
+    today_stress = _stress_by_day.get(today, {})
+    today_activity = _activity_by_day.get(today, {})
+    today_sleep_session = _sleep_by_day.get(today, {})
+
+    # Latest heart rate (most recent resting reading)
+    latest_hr = None
+    latest_hr_time = None
+    for reading in reversed(HEARTRATE):
+        if reading.get("bpm") and reading.get("timestamp", "")[:10] == today:
+            latest_hr = reading["bpm"]
+            latest_hr_time = reading["timestamp"]
+            break
+    # If no reading from today, get the absolute latest
+    if latest_hr is None and HEARTRATE:
+        latest_hr = HEARTRATE[-1].get("bpm", 0)
+        latest_hr_time = HEARTRATE[-1].get("timestamp", "")
+
+    # Latest resting HR from today
+    latest_resting_hr = None
+    for reading in reversed(HEARTRATE):
+        ts = reading.get("timestamp", "")[:10]
+        if ts == today and reading.get("source") == "rest":
+            latest_resting_hr = reading["bpm"]
+            break
+
+    return {
+        "day": today,
+        "sleepScore": today_sleep,
+        "readinessScore": today_readiness.get("score"),
+        "temperatureDeviation": today_readiness.get("temperature_deviation"),
+        "activityScore": today_activity.get("score"),
+        "steps": today_activity.get("steps", 0),
+        "activeCalories": today_activity.get("active_calories", 0),
+        "stressHigh": today_stress.get("stress_high"),
+        "stressMin": round((today_stress.get("stress_high", 0) or 0) / 60),
+        "stressSummary": today_stress.get("day_summary"),
+        "hrv": today_sleep_session.get("average_hrv"),
+        "avgHeartRate": today_sleep_session.get("average_heart_rate"),
+        "latestHeartRate": latest_hr,
+        "latestHeartRateTime": latest_hr_time,
+        "latestRestingHR": latest_resting_hr,
+        "spo2Avg": _spo2_by_day.get(today, {}).get("spo2_percentage", {}).get("average") if isinstance(_spo2_by_day.get(today, {}).get("spo2_percentage"), dict) else None,
+        "vascularAge": _cardio_by_day.get(today, {}).get("vascular_age"),
+    }
+
+
 @router.get("/cardiovascular-age")
 def get_cardiovascular_age():
     """Cardiovascular/vascular age history."""
