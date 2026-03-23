@@ -203,7 +203,14 @@ const OuraProfile = () => {
   }, []);
 
   /* ── derived data ── */
-  const allChart = useMemo(() => sleepHistory.map((d: any) => ({
+  // Filter out today's incomplete data: exclude days with <3h sleep or 0 activity + low efficiency
+  const today = new Date().toISOString().slice(0, 10);
+  const completeDays = useMemo(() => sleepHistory.filter((d: any) => {
+    if (d.day === today && (d.totalSleepHours < 3 || d.activityScore === 0 || d.efficiency < 60)) return false;
+    return true;
+  }), [sleepHistory, today]);
+
+  const allChart = useMemo(() => completeDays.map((d: any) => ({
     ...d,
     label: fmtDate(d.day),
     deepPct: Math.round((d.deepSleepPct ?? 0) * 100),
@@ -211,26 +218,32 @@ const OuraProfile = () => {
     lightPct: Math.round((d.lightSleepPct ?? 0) * 100),
     awakePct: Math.round((d.awakePct ?? 0) * 100),
     sleepHrs: d.totalSleepSeconds ? +(d.totalSleepSeconds / 3600).toFixed(1) : 0,
-  })), [sleepHistory]);
+  })), [completeDays]);
 
   const chart = useMemo(() => sliceDays(allChart, range), [allChart, range]);
   const stressChart = useMemo(() => sliceDays(stressData, range).map((d: any) => ({ ...d, label: fmtDate(d.day) })), [stressData, range]);
   const cardioChart = useMemo(() => sliceDays(cardioAge, range).map((d: any) => ({ ...d, label: fmtDate(d.day) })), [cardioAge, range]);
 
+  // Use last complete day for hero scores (not today's partial data)
   const latest = allChart.length ? allChart[allChart.length - 1] : null;
   const ti = tickInterval(chart.length);
 
   /* ── bedtime data ── */
   const bedtimeData = useMemo(() => {
-    return sliceDays(sleepHistory, range)
-      .filter((d: any) => d.bedtimeStart)
+    return sliceDays(completeDays, range)
+      .filter((d: any) => {
+        if (!d.bedtimeStart) return false;
+        // Filter out naps/partial sessions: bedtime should be evening (after 8PM or before 6AM)
+        const hour = new Date(d.bedtimeStart).getHours();
+        return hour >= 20 || hour <= 6;
+      })
       .map((d: any) => {
         const dt = new Date(d.bedtimeStart);
         let mins = dt.getHours() * 60 + dt.getMinutes();
         if (mins > 720) mins -= 1440;
         return { label: fmtDate(d.day), mins, time: fmtTime(d.bedtimeStart) };
       });
-  }, [sleepHistory, range]);
+  }, [completeDays, range]);
 
   /* ── loading / error ── */
   if (loading) return (
