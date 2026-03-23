@@ -81,12 +81,11 @@ def _generate_oura_checkins():
     return checkins
 
 
-# Try to load from Oura, fall back to mock
-_oura_checkins = _generate_oura_checkins()
-
-if _oura_checkins:
-    print(f"[YU RestOS] Using Oura-derived check-ins ({len(_oura_checkins)} days)")
-    _STATIC_CHECKINS = _oura_checkins
+# Demo flow uses mock check-ins (to trigger drift detection for Recovery demo)
+# Real Oura-derived check-ins available via _generate_oura_checkins() if needed
+if False:  # Set to True to use real Oura-derived check-ins
+    _oura_checkins = _generate_oura_checkins()
+    _STATIC_CHECKINS = _oura_checkins or []
 else:
     print("[YU RestOS] Using mock check-in data")
     BASE_DATE = datetime(2026, 3, 14)
