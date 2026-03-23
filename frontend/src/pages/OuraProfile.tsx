@@ -205,10 +205,10 @@ const OuraProfile = () => {
   const allChart = useMemo(() => sleepHistory.map((d: any) => ({
     ...d,
     label: fmtDate(d.day),
-    deepPct: d.deepSleepPct ?? 0,
-    remPct: d.remSleepPct ?? 0,
-    lightPct: Math.max(0, 100 - (d.deepSleepPct ?? 0) - (d.remSleepPct ?? 0) - (d.awakePct ?? 0)),
-    awakePct: d.awakePct ?? 0,
+    deepPct: Math.round((d.deepSleepPct ?? 0) * 100),
+    remPct: Math.round((d.remSleepPct ?? 0) * 100),
+    lightPct: Math.round((d.lightSleepPct ?? 0) * 100),
+    awakePct: Math.round((d.awakePct ?? 0) * 100),
     sleepHrs: d.totalSleepSeconds ? +(d.totalSleepSeconds / 3600).toFixed(1) : 0,
   })), [sleepHistory]);
 
@@ -367,7 +367,7 @@ const OuraProfile = () => {
         <Glass delay={420}>
           <Title icon={Moon} title="Sleep Stages" />
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }} stackOffset="expand">
+            <AreaChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
                 <linearGradient id="sg-deep" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.85} /><stop offset="100%" stopColor="#3B82F6" stopOpacity={0.4} />
@@ -384,7 +384,7 @@ const OuraProfile = () => {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="label" tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} interval={ti} />
-              <YAxis tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => `${Math.round(v * 100)}%`} />
+              <YAxis tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
               <Tooltip content={<Tip />} />
               <Area type="monotone" dataKey="deepPct" stackId="1" stroke="#3B82F6" fill="url(#sg-deep)" name="Deep %" />
               <Area type="monotone" dataKey="remPct" stackId="1" stroke="#8B5CF6" fill="url(#sg-rem)" name="REM %" />
