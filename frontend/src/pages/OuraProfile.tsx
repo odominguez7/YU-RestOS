@@ -320,7 +320,12 @@ const OuraProfile = () => {
                 <Heart className="w-3.5 h-3.5 text-red-400 animate-pulse" />
                 <span className="text-xs text-slate-400">Live HR: <span className="text-red-400 font-bold">{todayData.latestHeartRate} bpm</span></span>
                 {todayData.latestHeartRateTime && (
-                  <span className="text-[10px] text-slate-600">({new Date(todayData.latestHeartRateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
+                  <span className="text-[10px] text-slate-600">
+                    ({new Date(todayData.latestHeartRateTime).toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })} ET)
+                  </span>
+                )}
+                {todayData.latestHRSource && (
+                  <span className="text-[10px] text-slate-600 capitalize">· {todayData.latestHRSource}</span>
                 )}
               </div>
             )}

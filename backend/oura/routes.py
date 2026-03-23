@@ -252,39 +252,51 @@ def get_heart_rate_detail():
 
 
 @router.get("/today")
-def get_today():
-    """Today's real-time scores + latest heart rate."""
-    from datetime import datetime
+async def get_today():
+    """Today's real-time scores + LIVE heart rate from Oura API."""
+    from datetime import datetime, timedelta
+    from .live import has_live_token, fetch_oura
 
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Today's scores from daily data
+    # Today's scores from cached data
     today_sleep = _score_by_day.get(today, None)
     today_readiness = _readiness_by_day.get(today, {})
     today_stress = _stress_by_day.get(today, {})
     today_activity = _activity_by_day.get(today, {})
     today_sleep_session = _sleep_by_day.get(today, {})
 
-    # Latest heart rate (most recent resting reading)
+    # Fetch LIVE heart rate from Oura API (last 30 min)
     latest_hr = None
     latest_hr_time = None
-    for reading in reversed(HEARTRATE):
-        if reading.get("bpm") and reading.get("timestamp", "")[:10] == today:
-            latest_hr = reading["bpm"]
-            latest_hr_time = reading["timestamp"]
-            break
-    # If no reading from today, get the absolute latest
-    if latest_hr is None and HEARTRATE:
-        latest_hr = HEARTRATE[-1].get("bpm", 0)
-        latest_hr_time = HEARTRATE[-1].get("timestamp", "")
+    latest_source = None
 
-    # Latest resting HR from today
-    latest_resting_hr = None
-    for reading in reversed(HEARTRATE):
-        ts = reading.get("timestamp", "")[:10]
-        if ts == today and reading.get("source") == "rest":
-            latest_resting_hr = reading["bpm"]
-            break
+    if has_live_token():
+        try:
+            now = datetime.now()
+            start_dt = (now - timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%S-04:00")
+            end_dt = now.strftime("%Y-%m-%dT%H:%M:%S-04:00")
+            live_hr = await fetch_oura(
+                "/v2/usercollection/heartrate",
+                {"start_datetime": start_dt, "end_datetime": end_dt}
+            )
+            if live_hr:
+                # Get the most recent reading
+                last_reading = live_hr[-1]
+                latest_hr = last_reading.get("bpm")
+                latest_hr_time = last_reading.get("timestamp")
+                latest_source = last_reading.get("source", "")
+        except Exception as e:
+            print(f"[Oura Today] Live HR fetch failed: {e}")
+
+    # Fallback to exported data if live fetch failed
+    if latest_hr is None:
+        for reading in reversed(HEARTRATE):
+            if reading.get("bpm"):
+                latest_hr = reading["bpm"]
+                latest_hr_time = reading["timestamp"]
+                latest_source = reading.get("source", "")
+                break
 
     return {
         "day": today,
@@ -301,7 +313,7 @@ def get_today():
         "avgHeartRate": today_sleep_session.get("average_heart_rate"),
         "latestHeartRate": latest_hr,
         "latestHeartRateTime": latest_hr_time,
-        "latestRestingHR": latest_resting_hr,
+        "latestHRSource": latest_source,
         "spo2Avg": _spo2_by_day.get(today, {}).get("spo2_percentage", {}).get("average") if isinstance(_spo2_by_day.get(today, {}).get("spo2_percentage"), dict) else None,
         "vascularAge": _cardio_by_day.get(today, {}).get("vascular_age"),
     }
