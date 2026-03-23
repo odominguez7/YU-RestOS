@@ -22,7 +22,7 @@ REDIRECT_URI = "http://localhost:9999/callback"
 AUTH_URL = "https://cloud.ouraring.com/oauth/authorize"
 TOKEN_URL = "https://api.ouraring.com/oauth/token"
 
-SCOPES = "personal daily heartrate workout session spo2 ring_configuration stress resilience email"
+SCOPES = "personal daily heartrate workout session spo2 ring_configuration stress resilience email heart_health tag"
 
 auth_code = None
 

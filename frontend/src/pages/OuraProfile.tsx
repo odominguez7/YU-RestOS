@@ -460,6 +460,51 @@ const OuraProfile = () => {
           </ResponsiveContainer>
         </GlassCard>
 
+        {/* ═══════ CARDIOVASCULAR AGE ═══════ */}
+        {chartData.some((d: any) => d.vascularAge) && (
+          <GlassCard delay={850}>
+            <SectionTitle icon={Heart} title="Cardiovascular Age" />
+            <div className="flex items-center gap-4 mb-4">
+              <div className="text-center">
+                <p className="text-xs text-slate-500 uppercase tracking-wider">Actual Age</p>
+                <p className="text-3xl font-bold text-slate-300">36</p>
+              </div>
+              <div className="text-2xl text-slate-600">→</div>
+              <div className="text-center">
+                <p className="text-xs text-slate-500 uppercase tracking-wider">Vascular Age</p>
+                <p className="text-3xl font-bold text-emerald-400">
+                  {chartData.filter((d: any) => d.vascularAge).slice(-1)[0]?.vascularAge ?? "—"}
+                </p>
+              </div>
+              <div className="ml-4 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                <span className="text-xs font-bold text-emerald-400">6 years younger</span>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={chartData.filter((d: any) => d.vascularAge)} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="cardioGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#f43f5e" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 10 }} tickLine={false}
+                  axisLine={{ stroke: "#334155" }} interval={tickInterval(chartData.filter((d: any) => d.vascularAge).length)} />
+                <YAxis tick={{ fill: "#64748b", fontSize: 11 }} tickLine={false}
+                  axisLine={{ stroke: "#334155" }} domain={[25, 40]} />
+                <Tooltip content={<DarkTooltip />} />
+                <ReferenceLine y={36} stroke="#64748b" strokeDasharray="6 4" strokeOpacity={0.5}
+                  label={{ value: "Actual Age: 36", fill: "#64748b", fontSize: 10, position: "insideTopRight" }} />
+                <Area type="monotone" dataKey="vascularAge" stroke="#f43f5e" strokeWidth={2}
+                  fill="url(#cardioGrad)" dot={false}
+                  activeDot={{ r: 5, fill: "#f43f5e", stroke: "#0f172a", strokeWidth: 2 }}
+                  name="Vascular Age" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </GlassCard>
+        )}
+
         {/* ═══════ WORKOUTS ═══════ */}
         {workouts.length > 0 && (
           <GlassCard delay={900}>

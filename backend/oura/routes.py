@@ -34,6 +34,9 @@ DAILY_RESILIENCE = _load("daily_resilience.json")
 DAILY_SPO2 = _load("daily_spo2.json")
 WORKOUTS = _load("workouts.json")
 HEARTRATE = _load("heartrate.json")
+CARDIO_AGE = _load("daily_cardiovascular_age.json")
+VO2_MAX = _load("vo2_max.json")
+TAGS = _load("tags.json")
 
 # Build lookups
 _sleep_by_day = {}
@@ -48,9 +51,18 @@ _activity_by_day = {d["day"]: d for d in DAILY_ACTIVITY}
 _resilience_by_day = {d["day"]: d for d in DAILY_RESILIENCE}
 _spo2_by_day = {d["day"]: d for d in DAILY_SPO2}
 
+_cardio_by_day = {d["day"]: d for d in CARDIO_AGE}
+_tags_by_day = {}
+for t in TAGS:
+    day = t.get("day", t.get("timestamp", "")[:10])
+    if day not in _tags_by_day:
+        _tags_by_day[day] = []
+    _tags_by_day[day].append(t)
+
 print(f"[Oura API] Loaded: {len(SLEEP_SESSIONS)} sleep sessions, "
       f"{len(DAILY_SLEEP)} daily scores, {len(WORKOUTS)} workouts, "
-      f"{len(HEARTRATE)} HR readings")
+      f"{len(HEARTRATE)} HR readings, {len(CARDIO_AGE)} cardio age, "
+      f"{len(TAGS)} tags")
 
 
 @router.get("/sleep-history")
@@ -66,6 +78,7 @@ def get_sleep_history():
         activity = _activity_by_day.get(day, {})
         resilience = _resilience_by_day.get(day, {})
         spo2 = _spo2_by_day.get(day, {})
+        cardio = _cardio_by_day.get(day, {})
 
         total = s.get("total_sleep_duration", 0)
         deep = s.get("deep_sleep_duration", 0)
@@ -107,6 +120,7 @@ def get_sleep_history():
             "activityScore": activity.get("score", 0),
             "steps": activity.get("steps", 0),
             "activeCalories": activity.get("active_calories", 0),
+            "vascularAge": cardio.get("vascular_age", None),
             "bedtimeStart": s.get("bedtime_start", ""),
             "bedtimeEnd": s.get("bedtime_end", ""),
         })
@@ -161,6 +175,9 @@ def get_stats():
         "bestDay": {"day": days[best_idx] if scores else "", "score": max(scores) if scores else 0},
         "worstDay": {"day": days[worst_idx] if scores else "", "score": min(scores) if scores else 0},
         "totalSleepSessions": len(SLEEP_SESSIONS),
+        "latestVascularAge": CARDIO_AGE[-1].get("vascular_age") if CARDIO_AGE else None,
+        "totalCardioAgeDays": len(CARDIO_AGE),
+        "totalTags": len(TAGS),
     }
 
 
@@ -232,6 +249,24 @@ def get_heart_rate_detail():
             "readings": len(readings),
         })
     return {"data": data}
+
+
+@router.get("/cardiovascular-age")
+def get_cardiovascular_age():
+    """Cardiovascular/vascular age history."""
+    data = []
+    for d in sorted(CARDIO_AGE, key=lambda x: x.get("day", "")):
+        data.append({
+            "day": d.get("day", ""),
+            "vascularAge": d.get("vascular_age", 0),
+        })
+    return {"data": data, "totalDays": len(data)}
+
+
+@router.get("/tags")
+def get_tags():
+    """User tags/annotations."""
+    return {"data": TAGS, "total": len(TAGS)}
 
 
 @router.get("/refresh")
