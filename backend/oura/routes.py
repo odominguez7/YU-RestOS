@@ -274,7 +274,7 @@ async def get_today():
     if has_live_token():
         try:
             now = datetime.now()
-            start_dt = (now - timedelta(minutes=60)).strftime("%Y-%m-%dT%H:%M:%S-04:00")
+            start_dt = (now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S-04:00")
             end_dt = now.strftime("%Y-%m-%dT%H:%M:%S-04:00")
             live_hr = await fetch_oura(
                 "/v2/usercollection/heartrate",
