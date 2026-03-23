@@ -69,9 +69,10 @@ function tickInterval(len: number): number {
   return Math.floor(len / 14);
 }
 
-function sparkPoints(data: any[], key: string, max = 14): number[] {
-  const slice = data.slice(-max);
-  return slice.map((d: any) => d[key] ?? 0);
+function sparkPoints(data: any[], key: string): number[] {
+  // Use all data passed in (already filtered by range), downsample to ~20 points for sparkline
+  const src = data.length > 20 ? data.filter((_: any, i: number) => i % Math.ceil(data.length / 20) === 0) : data;
+  return src.map((d: any) => d[key] ?? 0);
 }
 
 /* ── SVG Ring Gauge ── */
