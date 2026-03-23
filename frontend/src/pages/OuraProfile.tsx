@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import {
   AreaChart, Area, BarChart, Bar, ComposedChart, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, ReferenceLine, ScatterChart, Scatter,
+  ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from "recharts";
 import {
   Activity, Heart, Moon, Brain, Flame, Dumbbell, Clock, TrendingUp,
@@ -61,6 +61,13 @@ function sliceDays(data: any[], interval: Interval) {
   return data.slice(-n);
 }
 
+function intervalDayCount(interval: Interval, totalLen: number): number {
+  if (interval === "ALL") return totalLen;
+  if (interval === "7D") return Math.min(7, totalLen);
+  if (interval === "14D") return Math.min(14, totalLen);
+  return Math.min(30, totalLen);
+}
+
 function tickInterval(len: number): number {
   if (len <= 10) return 0;
   if (len <= 20) return 1;
@@ -70,9 +77,14 @@ function tickInterval(len: number): number {
 }
 
 function sparkPoints(data: any[], key: string): number[] {
-  // Use all data passed in (already filtered by range), downsample to ~20 points for sparkline
   const src = data.length > 20 ? data.filter((_: any, i: number) => i % Math.ceil(data.length / 20) === 0) : data;
   return src.map((d: any) => d[key] ?? 0);
+}
+
+function avgOf(data: any[], key: string): number {
+  const valid = data.filter((d: any) => d[key] != null && d[key] !== 0);
+  if (!valid.length) return 0;
+  return valid.reduce((s: number, d: any) => s + (d[key] ?? 0), 0) / valid.length;
 }
 
 /* ── SVG Ring Gauge ── */
@@ -126,11 +138,14 @@ const Glass = ({ children, delay = 0, className = "" }: { children: React.ReactN
   </div>
 );
 
-/* ── Section Title ── */
-const Title = ({ icon: Icon, title }: { icon: any; title: string }) => (
-  <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-[.22em] mb-5 flex items-center gap-2">
-    <Icon className="w-4 h-4 text-slate-500" /> {title}
-  </h3>
+/* ── Section Title with description ── */
+const SectionHeader = ({ icon: Icon, title, description }: { icon: any; title: string; description: string }) => (
+  <div className="mb-5">
+    <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-[.22em] mb-2 flex items-center gap-2">
+      <Icon className="w-4 h-4 text-slate-500" /> {title}
+    </h3>
+    <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">{description}</p>
+  </div>
 );
 
 /* ── Tooltip ── */
@@ -149,8 +164,8 @@ const Tip = ({ active, payload, label }: any) => {
 };
 
 /* ── Stat Card (vital grid) ── */
-const StatCard = ({ icon: Icon, label, value, unit, spark, change, color, delay = 0 }: {
-  icon: any; label: string; value: string | number; unit: string; spark: number[]; change: number; color: string; delay?: number;
+const StatCard = ({ icon: Icon, label, subtitle, value, unit, spark, change, color, daysLabel, delay = 0 }: {
+  icon: any; label: string; subtitle: string; value: string | number; unit: string; spark: number[]; change: number; color: string; daysLabel: string; delay?: number;
 }) => (
   <div className="rounded-xl border border-white/[0.06] p-4 flex flex-col gap-2"
     style={{ background: "rgba(15,22,56,0.5)", backdropFilter: "blur(12px)", animation: `oura-fade-up .55s ease-out ${delay}ms both` }}>
@@ -167,6 +182,8 @@ const StatCard = ({ icon: Icon, label, value, unit, spark, change, color, delay 
         </span>
       )}
     </div>
+    <p className="text-[9px] text-slate-600 leading-tight">{subtitle}</p>
+    <p className="text-[8px] text-slate-600 uppercase tracking-wider">{daysLabel}</p>
   </div>
 );
 
@@ -206,7 +223,6 @@ const OuraProfile = () => {
   }, []);
 
   /* ── derived data ── */
-  // Filter out today's incomplete data: exclude days with <3h sleep or 0 activity + low efficiency
   const today = new Date().toISOString().slice(0, 10);
   const completeDays = useMemo(() => sleepHistory.filter((d: any) => {
     if (d.day === today && (d.totalSleepHours < 3 || d.activityScore === 0 || d.efficiency < 60)) return false;
@@ -227,16 +243,36 @@ const OuraProfile = () => {
   const stressChart = useMemo(() => sliceDays(stressData, range).map((d: any) => ({ ...d, label: fmtDate(d.day) })), [stressData, range]);
   const cardioChart = useMemo(() => sliceDays(cardioAge, range).map((d: any) => ({ ...d, label: fmtDate(d.day) })), [cardioAge, range]);
 
-  // Use last complete day for hero scores (not today's partial data)
   const latest = allChart.length ? allChart[allChart.length - 1] : null;
   const ti = tickInterval(chart.length);
+  const dayCount = intervalDayCount(range, allChart.length);
+  const daysLabel = `avg over ${chart.length} days`;
+
+  /* ── computed averages from filtered chart data ── */
+  const avgHR = useMemo(() => +avgOf(chart, "avgHeartRate").toFixed(0), [chart]);
+  const avgHRV = useMemo(() => +avgOf(chart, "hrv").toFixed(0), [chart]);
+  const avgResp = useMemo(() => +avgOf(chart, "avgRespRate").toFixed(1), [chart]);
+  const avgSpO2 = useMemo(() => +avgOf(chart, "spo2Avg").toFixed(1), [chart]);
+  const avgDeep = useMemo(() => +avgOf(chart, "deepSleepMin").toFixed(0), [chart]);
+  const avgReadiness = useMemo(() => +avgOf(chart, "readinessScore").toFixed(0), [chart]);
+  const avgSteps = useMemo(() => +avgOf(chart, "steps").toFixed(0), [chart]);
+  const avgEfficiency = useMemo(() => +avgOf(chart, "efficiency").toFixed(0), [chart]);
+
+  /* ── overall averages for % change comparison ── */
+  const overallAvgHR = useMemo(() => +avgOf(allChart, "avgHeartRate").toFixed(0), [allChart]);
+  const overallAvgHRV = useMemo(() => +avgOf(allChart, "hrv").toFixed(0), [allChart]);
+  const overallAvgResp = useMemo(() => +avgOf(allChart, "avgRespRate").toFixed(1), [allChart]);
+  const overallAvgSpO2 = useMemo(() => +avgOf(allChart, "spo2Avg").toFixed(1), [allChart]);
+  const overallAvgDeep = useMemo(() => +avgOf(allChart, "deepSleepMin").toFixed(0), [allChart]);
+  const overallAvgReadiness = useMemo(() => +avgOf(allChart, "readinessScore").toFixed(0), [allChart]);
+  const overallAvgSteps = useMemo(() => +avgOf(allChart, "steps").toFixed(0), [allChart]);
+  const overallAvgEfficiency = useMemo(() => +avgOf(allChart, "efficiency").toFixed(0), [allChart]);
 
   /* ── bedtime data ── */
   const bedtimeData = useMemo(() => {
     return sliceDays(completeDays, range)
       .filter((d: any) => {
         if (!d.bedtimeStart) return false;
-        // Filter out naps/partial sessions: bedtime should be evening (after 8PM or before 6AM)
         const hour = new Date(d.bedtimeStart).getHours();
         return hour >= 20 || hour <= 6;
       })
@@ -273,6 +309,50 @@ const OuraProfile = () => {
 
   return (
     <div className="min-h-screen" style={{ background: "linear-gradient(180deg,#0a0e27 0%,#111638 100%)" }}>
+
+      {/* ═══════ STICKY TODAY BAR ═══════ */}
+      {todayData && (
+        <div className="sticky top-16 z-40 border-b border-white/[0.06]"
+          style={{ background: "rgba(8,11,30,0.85)", backdropFilter: "blur(20px)" }}>
+          <div className="max-w-6xl mx-auto px-4 md:px-6 py-2.5 flex items-center justify-center gap-4 md:gap-6 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <Moon className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">Sleep</span>
+              <span className="text-sm font-black" style={{ color: scoreClr(todayData.sleepScore ?? 0) }}>{todayData.sleepScore ?? "--"}</span>
+            </div>
+            <span className="text-slate-700">|</span>
+            <div className="flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">Readiness</span>
+              <span className="text-sm font-black" style={{ color: scoreClr(todayData.readinessScore ?? 0) }}>{todayData.readinessScore ?? "--"}</span>
+            </div>
+            <span className="text-slate-700">|</span>
+            <div className="flex items-center gap-1.5">
+              <Brain className="w-3.5 h-3.5 text-violet-400" />
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">HRV</span>
+              <span className="text-sm font-black text-violet-400">{todayData.hrv ?? "--"} <span className="text-[9px] text-slate-500">ms</span></span>
+            </div>
+            <span className="text-slate-700">|</span>
+            <div className="flex items-center gap-1.5">
+              <Heart className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">HR</span>
+              <span className="text-sm font-black text-red-400">{todayData.latestHeartRate ?? "--"} <span className="text-[9px] text-slate-500">bpm</span></span>
+              {todayData.latestHeartRateTime && (
+                <span className="text-[9px] text-slate-600">
+                  {new Date(todayData.latestHeartRateTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" })} ET
+                </span>
+              )}
+            </div>
+            <span className="text-slate-700">|</span>
+            <div className="flex items-center gap-1.5">
+              <Flame className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">Stress</span>
+              <span className="text-sm font-black text-amber-400">{todayData.stressMin ?? "--"} <span className="text-[9px] text-slate-500">min</span></span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-10 space-y-7">
 
         {/* ═══════ 1. HEADER ═══════ */}
@@ -312,20 +392,9 @@ const OuraProfile = () => {
           </div>
         </Glass>
 
-        {/* ═══════ 2. HERO RING GAUGES (TODAY'S LIVE DATA) ═══════ */}
+        {/* ═══════ 2. HERO RING GAUGES ═══════ */}
         {(todayData || latest) && (
           <div style={{ animation: "oura-fade-up .7s ease-out 100ms both" }}>
-            {todayData?.latestHeartRate && (
-              <div className="flex items-center justify-center gap-2 mb-3">
-                <Heart className="w-3.5 h-3.5 text-red-400 animate-pulse" />
-                <span className="text-xs text-slate-400">Heart Rate: <span className="text-red-400 font-bold">{todayData.latestHeartRate} bpm</span></span>
-                {todayData.latestHeartRateTime && (
-                  <span className="text-[10px] text-slate-600">
-                    Last synced {new Date(todayData.latestHeartRateTime).toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'America/New_York' })} ET
-                  </span>
-                )}
-              </div>
-            )}
             <div className="grid grid-cols-3 gap-4 md:gap-8 justify-items-center py-2">
               <RingGauge value={todayData?.sleepScore ?? latest?.sleepScore ?? 0} max={100} label="Sleep" color={scoreClr(todayData?.sleepScore ?? latest?.sleepScore ?? 0)}
                 avg={stats?.avgSleepScore} delay={100} />
@@ -336,11 +405,9 @@ const OuraProfile = () => {
             </div>
             {todayData && (
               <div className="flex items-center justify-center gap-4 mt-3 text-[10px] text-slate-500">
-                <span>Today: Activity <span className="text-white font-bold">{todayData.activityScore ?? "—"}</span></span>
+                <span>Today: Activity <span className="text-white font-bold">{todayData.activityScore ?? "--"}</span></span>
                 <span>&middot;</span>
                 <span>Steps <span className="text-white font-bold">{(todayData.steps ?? 0).toLocaleString()}</span></span>
-                <span>&middot;</span>
-                <span>Stress <span className="text-white font-bold">{todayData.stressMin ?? "—"} min</span></span>
                 {todayData.vascularAge && (
                   <>
                     <span>&middot;</span>
@@ -352,36 +419,64 @@ const OuraProfile = () => {
           </div>
         )}
 
-        {/* ═══════ 3. VITAL GRID ═══════ */}
-        {latest && stats && (
+        {/* ═══════ 3. VITAL GRID (8 cards — computed from filtered chart range) ═══════ */}
+        {chart.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard icon={Heart} label="Heart Rate" value={latest.avgHeartRate ?? "--"} unit="bpm"
-              spark={sparkPoints(chart, "avgHeartRate")} change={pctChange(latest.avgHeartRate ?? 0, stats.avgHeartRate ?? 0)}
-              color="#F87171" delay={200} />
-            <StatCard icon={Wind} label="Resp Rate" value={latest.avgRespRate != null ? (+latest.avgRespRate).toFixed(1) : "--"} unit="br/m"
-              spark={sparkPoints(chart, "avgRespRate")} change={0} color="#38BDF8" delay={250} />
-            <StatCard icon={Droplets} label="SpO2" value={latest.spo2Avg ?? "--"} unit="%"
-              spark={sparkPoints(chart, "spo2Avg")} change={0} color="#A78BFA" delay={300} />
-            <StatCard icon={Moon} label="Deep Sleep" value={latest.deepSleepMin ?? "--"} unit="min"
-              spark={sparkPoints(chart, "deepSleepMin")} change={pctChange(latest.deepSleepPct ?? 0, stats.avgDeepPct ?? 0)}
-              color="#3B82F6" delay={350} />
-            <StatCard icon={Footprints} label="Steps" value={latest.steps != null ? latest.steps.toLocaleString() : "--"} unit=""
-              spark={sparkPoints(chart, "steps")} change={0} color="#4ADE80" delay={400} />
-            <StatCard icon={Flame} label="Active Cal" value={latest.activeCalories ?? "--"} unit="kcal"
-              spark={sparkPoints(chart, "activeCalories")} change={0} color="#FB923C" delay={450} />
-            <StatCard icon={Heart} label="Vascular Age"
-              value={stats.latestVascularAge ?? "--"} unit="yrs"
-              spark={sparkPoints(cardioAge.map((d: any) => ({ v: d.vascularAge })), "v")}
-              change={stats.latestVascularAge ? -Math.round(36 - (stats.latestVascularAge ?? 36)) : 0}
-              color="#F472B6" delay={500} />
-            <StatCard icon={Gauge} label="Efficiency" value={latest.efficiency ?? "--"} unit="%"
-              spark={sparkPoints(chart, "efficiency")} change={0} color="#2DD4BF" delay={550} />
+            <StatCard icon={Heart} label="Heart Rate"
+              subtitle="Lower is better. Athletes: 40-60 bpm"
+              value={avgHR || "--"} unit="bpm"
+              spark={sparkPoints(chart, "avgHeartRate")}
+              change={pctChange(avgHR, overallAvgHR)}
+              color="#F87171" daysLabel={daysLabel} delay={200} />
+            <StatCard icon={Brain} label="HRV"
+              subtitle="Higher means better recovery"
+              value={avgHRV || "--"} unit="ms"
+              spark={sparkPoints(chart, "hrv")}
+              change={pctChange(avgHRV, overallAvgHRV)}
+              color="#8B5CF6" daysLabel={daysLabel} delay={250} />
+            <StatCard icon={Wind} label="Resp Rate"
+              subtitle="Normal: 12-20 breaths/min"
+              value={avgResp || "--"} unit="br/min"
+              spark={sparkPoints(chart, "avgRespRate")}
+              change={pctChange(avgResp, overallAvgResp)}
+              color="#38BDF8" daysLabel={daysLabel} delay={300} />
+            <StatCard icon={Droplets} label="SpO2"
+              subtitle="Normal: 95-100%"
+              value={avgSpO2 || "--"} unit="%"
+              spark={sparkPoints(chart, "spo2Avg")}
+              change={pctChange(avgSpO2, overallAvgSpO2)}
+              color="#A78BFA" daysLabel={daysLabel} delay={350} />
+            <StatCard icon={Moon} label="Deep Sleep"
+              subtitle="Goal: 60-90 min per night"
+              value={avgDeep || "--"} unit="min"
+              spark={sparkPoints(chart, "deepSleepMin")}
+              change={pctChange(avgDeep, overallAvgDeep)}
+              color="#3B82F6" daysLabel={daysLabel} delay={400} />
+            <StatCard icon={TrendingUp} label="Readiness"
+              subtitle="Above 70 = ready to perform"
+              value={avgReadiness || "--"} unit="/100"
+              spark={sparkPoints(chart, "readinessScore")}
+              change={pctChange(avgReadiness, overallAvgReadiness)}
+              color="#4ADE80" daysLabel={daysLabel} delay={450} />
+            <StatCard icon={Footprints} label="Steps"
+              subtitle="Goal: 8,000-10,000 daily"
+              value={avgSteps ? avgSteps.toLocaleString() : "--"} unit="steps"
+              spark={sparkPoints(chart, "steps")}
+              change={pctChange(avgSteps, overallAvgSteps)}
+              color="#FB923C" daysLabel={daysLabel} delay={500} />
+            <StatCard icon={Gauge} label="Efficiency"
+              subtitle="Above 85% is good"
+              value={avgEfficiency || "--"} unit="%"
+              spark={sparkPoints(chart, "efficiency")}
+              change={pctChange(avgEfficiency, overallAvgEfficiency)}
+              color="#2DD4BF" daysLabel={daysLabel} delay={550} />
           </div>
         )}
 
         {/* ═══════ 4. SLEEP SCORE TREND ═══════ */}
         <Glass delay={350}>
-          <Title icon={Moon} title="Sleep Score Trend" />
+          <SectionHeader icon={Moon} title="Sleep Score Trend"
+            description="Your overall sleep quality scored 0-100 by Oura. Tracks how well you sleep each night. Above 85 = great, below 65 = something's off." />
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -409,7 +504,8 @@ const OuraProfile = () => {
 
         {/* ═══════ 5. SLEEP STAGES ═══════ */}
         <Glass delay={420}>
-          <Title icon={Moon} title="Sleep Stages" />
+          <SectionHeader icon={Moon} title="Sleep Stages"
+            description="How your sleep breaks down each night. Deep sleep repairs your body, REM processes emotions and memory. More deep + REM = better recovery." />
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -447,7 +543,8 @@ const OuraProfile = () => {
         {/* ═══════ 6. STRESS & RECOVERY ═══════ */}
         {stressChart.length > 0 && (
           <Glass delay={490}>
-            <Title icon={Zap} title="Stress & Recovery" />
+            <SectionHeader icon={Zap} title="Stress & Recovery"
+              description="Minutes of high stress vs high recovery each day. Red bars = your body was stressed. Green = active recovery time. Balance matters." />
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={stressChart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
@@ -494,7 +591,8 @@ const OuraProfile = () => {
 
         {/* ═══════ 7. READINESS + ACTIVITY ═══════ */}
         <Glass delay={560}>
-          <Title icon={TrendingUp} title="Readiness + Activity" />
+          <SectionHeader icon={TrendingUp} title="Readiness + Activity"
+            description="Readiness = how ready your body is to perform. Activity = how active you were. When readiness drops but activity stays high, you're overtraining." />
           <ResponsiveContainer width="100%" height={280}>
             <AreaChart data={chart.filter((d: any) => d.activityScore > 0)} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -523,7 +621,8 @@ const OuraProfile = () => {
 
         {/* ═══════ 8. HEART RATE & HRV DETAIL ═══════ */}
         <Glass delay={630}>
-          <Title icon={Heart} title="Heart Rate & HRV" />
+          <SectionHeader icon={Heart} title="Heart Rate & HRV"
+            description="Resting heart rate should trend down over time (fitness improving). HRV should trend up (better stress resilience). Watch for sudden changes." />
           <ResponsiveContainer width="100%" height={280}>
             <ComposedChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -554,7 +653,8 @@ const OuraProfile = () => {
         {/* ═══════ 9. CARDIOVASCULAR AGE ═══════ */}
         {cardioChart.length > 0 && (
           <Glass delay={700}>
-            <Title icon={Heart} title="Cardiovascular Age" />
+            <SectionHeader icon={Heart} title="Cardiovascular Age"
+              description="Your heart's biological age based on resting metrics. Lower than your actual age (36) means your cardiovascular fitness is above average." />
             <div className="flex items-center gap-5 mb-5">
               <div className="text-center">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Actual</p>
@@ -595,7 +695,8 @@ const OuraProfile = () => {
         {/* ═══════ 10. BEDTIME PATTERNS ═══════ */}
         {bedtimeData.length > 0 && (
           <Glass delay={770}>
-            <Title icon={Clock} title="Bedtime Patterns" />
+            <SectionHeader icon={Clock} title="Bedtime Patterns"
+              description="When you actually go to bed each night. Consistency matters more than the exact time. Big swings hurt your sleep quality." />
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={bedtimeData} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
                 <defs>
@@ -629,10 +730,43 @@ const OuraProfile = () => {
           </Glass>
         )}
 
-        {/* ═══════ 11. RECENT WORKOUTS ═══════ */}
-        {workouts.length > 0 && (
+        {/* ═══════ 11. SLEEP CONTRIBUTORS ═══════ */}
+        {latest && (
           <Glass delay={840}>
-            <Title icon={Dumbbell} title="Recent Workouts" />
+            <SectionHeader icon={Moon} title="Sleep Contributors"
+              description="What's helping and hurting your sleep score. Low scores here show exactly what to fix." />
+            <div className="space-y-3">
+              {[
+                { label: "Deep Sleep", key: "deepSleepPct", max: 25, color: "#3B82F6" },
+                { label: "REM Sleep", key: "remSleepPct", max: 30, color: "#8B5CF6" },
+                { label: "Efficiency", key: "efficiency", max: 100, color: "#2DD4BF" },
+                { label: "Latency", key: "latency", max: 30, color: "#F59E0B", invert: true },
+                { label: "Total Sleep", key: "sleepHrs", max: 9, color: "#4ADE80", suffix: "hrs" },
+                { label: "Restfulness", key: "tnt", max: 60, color: "#818CF8", invert: true },
+              ].map((c) => {
+                const raw = latest[c.key] ?? 0;
+                const pct = (c as any).invert ? Math.max(0, 100 - (raw / c.max * 100)) : Math.min(100, (raw / c.max * 100));
+                return (
+                  <div key={c.key}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-slate-400 font-semibold">{c.label}</span>
+                      <span className="text-xs font-bold text-white">{typeof raw === "number" ? (Number.isInteger(raw) ? raw : raw.toFixed(1)) : raw}{(c as any).suffix ? ` ${(c as any).suffix}` : ""}</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
+                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: c.color }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Glass>
+        )}
+
+        {/* ═══════ 12. RECENT WORKOUTS ═══════ */}
+        {workouts.length > 0 && (
+          <Glass delay={910}>
+            <SectionHeader icon={Dumbbell} title="Recent Workouts"
+              description="Your logged workout sessions from Oura. Track intensity, duration, and calories to see how your training lines up with recovery." />
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-sm">
                 <thead>
@@ -668,37 +802,6 @@ const OuraProfile = () => {
                   ))}
                 </tbody>
               </table>
-            </div>
-          </Glass>
-        )}
-
-        {/* ═══════ 12. SLEEP CONTRIBUTORS ═══════ */}
-        {latest && (
-          <Glass delay={910}>
-            <Title icon={Moon} title="Sleep Contributors (Latest)" />
-            <div className="space-y-3">
-              {[
-                { label: "Deep Sleep", key: "deepSleepPct", max: 25, color: "#3B82F6" },
-                { label: "REM Sleep", key: "remSleepPct", max: 30, color: "#8B5CF6" },
-                { label: "Efficiency", key: "efficiency", max: 100, color: "#2DD4BF" },
-                { label: "Latency", key: "latency", max: 30, color: "#F59E0B", invert: true },
-                { label: "Total Sleep", key: "sleepHrs", max: 9, color: "#4ADE80", suffix: "hrs" },
-                { label: "Restfulness", key: "tnt", max: 60, color: "#818CF8", invert: true },
-              ].map((c) => {
-                const raw = latest[c.key] ?? 0;
-                const pct = (c as any).invert ? Math.max(0, 100 - (raw / c.max * 100)) : Math.min(100, (raw / c.max * 100));
-                return (
-                  <div key={c.key}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs text-slate-400 font-semibold">{c.label}</span>
-                      <span className="text-xs font-bold text-white">{typeof raw === "number" ? (Number.isInteger(raw) ? raw : raw.toFixed(1)) : raw}{(c as any).suffix ? ` ${(c as any).suffix}` : ""}</span>
-                    </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
-                      <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: c.color }} />
-                    </div>
-                  </div>
-                );
-              })}
             </div>
           </Glass>
         )}
