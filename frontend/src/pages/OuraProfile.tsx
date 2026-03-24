@@ -392,34 +392,7 @@ const OuraProfile = () => {
           </div>
         </Glass>
 
-        {/* ═══════ 2. HERO RING GAUGES ═══════ */}
-        {(todayData || latest) && (
-          <div style={{ animation: "oura-fade-up .7s ease-out 100ms both" }}>
-            <div className="grid grid-cols-3 gap-4 md:gap-8 justify-items-center py-2">
-              <RingGauge value={todayData?.sleepScore ?? latest?.sleepScore ?? 0} max={100} label="Sleep" color={scoreClr(todayData?.sleepScore ?? latest?.sleepScore ?? 0)}
-                avg={stats?.avgSleepScore} delay={100} />
-              <RingGauge value={todayData?.readinessScore ?? latest?.readinessScore ?? 0} max={100} label="Readiness" color={scoreClr(todayData?.readinessScore ?? latest?.readinessScore ?? 0)}
-                avg={stats?.avgReadiness} delay={200} />
-              <RingGauge value={todayData?.hrv ?? latest?.hrv ?? 0} max={120} label="HRV" unit="ms" color="#8B5CF6"
-                avg={stats?.avgHRV} delay={300} />
-            </div>
-            {todayData && (
-              <div className="flex items-center justify-center gap-4 mt-3 text-[10px] text-slate-500">
-                <span>Today: Activity <span className="text-white font-bold">{todayData.activityScore ?? "--"}</span></span>
-                <span>&middot;</span>
-                <span>Steps <span className="text-white font-bold">{(todayData.steps ?? 0).toLocaleString()}</span></span>
-                {todayData.vascularAge && (
-                  <>
-                    <span>&middot;</span>
-                    <span>Vascular Age <span className="text-emerald-400 font-bold">{todayData.vascularAge}</span></span>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ═══════ 3. VITAL GRID (8 cards — computed from filtered chart range) ═══════ */}
+        {/* ═══════ VITAL GRID (8 cards — computed from filtered chart range) ═══════ */}
         {chart.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard icon={Heart} label="Heart Rate"
