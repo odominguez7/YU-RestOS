@@ -6,7 +6,10 @@ In production: dispatches to real human agents.
 """
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import uuid
+
+BOSTON_TZ = ZoneInfo("America/New_York")
 
 _task_queue: dict[str, dict] = {}
 
@@ -21,8 +24,8 @@ def dispatch_task(action) -> dict:
         "parameters": action.parameters,
         "status": "dispatched",
         "status_history": [
-            {"status": "received", "timestamp": datetime.now().isoformat(), "message": "Task received by YU RestOS"},
-            {"status": "dispatched", "timestamp": datetime.now().isoformat(), "message": "Recovery agent assigned"},
+            {"status": "received", "timestamp": datetime.now(BOSTON_TZ).isoformat(), "message": "Task received by YU RestOS"},
+            {"status": "dispatched", "timestamp": datetime.now(BOSTON_TZ).isoformat(), "message": "Recovery agent assigned"},
         ],
         "estimated_completion": "Within 2 hours",
         "agent_name": "YU Recovery Agent",
@@ -67,7 +70,7 @@ def simulate_task_progress(task_id: str) -> dict:
         task["status"] = next_step["next"]
         task["status_history"].append({
             "status": next_step["next"],
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(BOSTON_TZ).isoformat(),
             "message": next_step["message"],
         })
 

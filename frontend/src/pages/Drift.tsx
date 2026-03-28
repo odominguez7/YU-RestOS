@@ -79,7 +79,7 @@ const Drift = () => {
         <div className="text-center space-y-4">
           <p className="text-2xl font-bold text-green-400">No drift detected.</p>
           <p className="text-slate-400">Your vitals are holding steady.</p>
-          <Link to="/dashboard"><Button variant="ghost" size="lg">Back to Dashboard</Button></Link>
+          <Link to="/oura"><Button variant="ghost" size="lg">Back to My Biology</Button></Link>
         </div>
       </div>
     );
@@ -272,12 +272,22 @@ const Drift = () => {
               />
               <Line
                 type="monotone"
-                dataKey="mood"
+                dataKey="readiness"
                 stroke="#10b981"
                 strokeWidth={2.5}
                 dot={{ r: 3, fill: "#10b981", strokeWidth: 0 }}
                 activeDot={{ r: 6, fill: "#10b981", stroke: "#0f172a", strokeWidth: 2 }}
-                name="Mood"
+                name="Readiness"
+              />
+              <Line
+                type="monotone"
+                dataKey="hrv"
+                stroke="#8b5cf6"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                dot={false}
+                activeDot={{ r: 4, fill: "#8b5cf6", stroke: "#0f172a", strokeWidth: 2 }}
+                name="HRV"
               />
             </LineChart>
           </ResponsiveContainer>
@@ -290,15 +300,20 @@ const Drift = () => {
             style={{ background: "rgba(15,23,42,.7)", backdropFilter: "blur(12px)", animation: "drift-fade-up 0.8s ease-out 0.7s both" }}
           >
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-[.2em] mb-5">
-              Baseline vs Current
+              30-Day Baseline vs Current
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {(["sleepScore", "hrv", "mood", "energy"] as const).map((key) => {
+              {([
+                { key: "sleepScore", label: "Sleep Score" },
+                { key: "hrv", label: "HRV" },
+                { key: "readiness", label: "Readiness" },
+                { key: "rhr", label: "Resting HR" },
+              ] as const).map(({ key, label }) => {
                 const base = baseline[key];
                 const curr = latest?.[key];
                 if (base == null) return null;
                 const diff = curr != null ? curr - base : 0;
-                const isDown = diff < 0;
+                const isDown = key === "rhr" ? diff > 0 : diff < 0;
                 const color = isDown ? "#ef4444" : "#22c55e";
                 const Arrow = isDown ? ArrowDown : ArrowUp;
 
@@ -308,13 +323,11 @@ const Drift = () => {
                     className="rounded-xl p-4 text-center space-y-2"
                     style={{ background: "#0f172a", border: "1px solid #1e293b" }}
                   >
-                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">
-                      {labelMap[key] ?? key}
-                    </p>
+                    <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">{label}</p>
                     <div className="flex items-center justify-center gap-3">
                       <div>
                         <p className="text-xs text-slate-500">Baseline</p>
-                        <p className="text-lg font-bold text-slate-300">{base}</p>
+                        <p className="text-lg font-bold text-slate-300">{typeof base === "number" ? base.toFixed(1) : base}</p>
                       </div>
                       <Arrow className="w-5 h-5" style={{ color }} />
                       <div>
@@ -324,11 +337,6 @@ const Drift = () => {
                         </p>
                       </div>
                     </div>
-                    {curr != null && (
-                      <p className="text-xs font-bold" style={{ color }}>
-                        {isDown ? "" : "+"}{diff.toFixed(1)}
-                      </p>
-                    )}
                   </div>
                 );
               })}
@@ -336,14 +344,48 @@ const Drift = () => {
           </div>
         )}
 
+        {/* ═══════ DRIFT DRIVERS ═══════ */}
+        {data.drivers && data.drivers.length > 0 && (
+          <div
+            className="rounded-2xl border border-slate-700/50 p-6"
+            style={{ background: "rgba(15,23,42,.7)", backdropFilter: "blur(12px)", animation: "drift-fade-up 0.8s ease-out 0.8s both" }}
+          >
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-[.2em] mb-5">
+              What's Driving the Drift
+            </h3>
+            <div className="space-y-3">
+              {data.drivers.map((d: any, i: number) => (
+                <div key={i} className="flex items-center gap-4 rounded-xl p-3" style={{ background: "#0f172a", border: "1px solid #1e293b" }}>
+                  <div className="flex-shrink-0 w-12 h-8 rounded-lg flex items-center justify-center text-xs font-black"
+                    style={{ background: `${severityColor}22`, color: severityColor }}>
+                    {d.z_score}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-slate-200">{d.description}</p>
+                    <p className="text-[10px] text-slate-500">Weight: {(d.weight * 100).toFixed(0)}% of composite score</p>
+                  </div>
+                  <div className="w-24 h-2 rounded-full overflow-hidden" style={{ background: "#1e293b" }}>
+                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.abs(d.z_score) * 33)}%`, background: severityColor }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {data.algorithm && (
+              <p className="text-[9px] text-slate-600 mt-4 pt-3 border-t border-slate-800">
+                Method: {data.algorithm.method}. Baseline: {data.algorithm.baseline_window}-day rolling. Detection: {data.algorithm.current_window}-day window, threshold z={data.algorithm.threshold}.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* ═══════ CTA ═══════ */}
         <div
-          className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4"
+          className="flex flex-col items-center gap-4 pt-4"
           style={{ animation: "drift-fade-up 0.8s ease-out 0.9s both" }}
         >
           <Link to="/recovery">
             <button
-              className="px-10 py-4 rounded-2xl text-lg font-extrabold text-white cursor-pointer border-0"
+              className="px-12 py-5 rounded-2xl text-lg font-extrabold text-white cursor-pointer border-0"
               style={{
                 background: "linear-gradient(135deg, #16a34a, #22c55e)",
                 animation: "drift-cta-pulse 2s ease-in-out infinite",
@@ -359,19 +401,10 @@ const Drift = () => {
                 e.currentTarget.style.boxShadow = "0 4px 24px rgba(34,197,94,.3)";
               }}
             >
-              View Recovery Plan &rarr;
+              Generate Recovery Plan &rarr;
             </button>
           </Link>
-          <Link to="/xray">
-            <Button variant="outline" size="lg" className="border-slate-600 text-slate-300 hover:border-slate-400">
-              X-Ray Mode
-            </Button>
-          </Link>
-          <Link to="/dashboard">
-            <Button variant="ghost" size="lg" className="text-slate-500 hover:text-slate-300">
-              Back to Dashboard
-            </Button>
-          </Link>
+          <p className="text-[10px] text-slate-600">AI will analyze your drift and generate targeted recovery actions</p>
         </div>
       </div>
     </div>

@@ -85,7 +85,8 @@ def get_sleep_history():
         rem = s.get("rem_sleep_duration", 0)
         light = s.get("light_sleep_duration", 0)
         awake = s.get("awake_time", 0)
-        total_stages = deep + rem + light + awake if (deep + rem + light + awake) > 0 else 1
+        total_sleep_stages = deep + rem + light if (deep + rem + light) > 0 else 1
+        total_with_awake = deep + rem + light + awake if (deep + rem + light + awake) > 0 else 1
 
         stress_high = stress.get("stress_high", 0) or 0
 
@@ -96,10 +97,10 @@ def get_sleep_history():
             "avgHeartRate": round(s.get("average_heart_rate", 0), 1),
             "avgRespRate": round(s.get("average_breath", 0), 1),
             "lowestHeartRate": s.get("lowest_heart_rate", 0),
-            "deepSleepPct": round(deep / total_stages, 3),
-            "remSleepPct": round(rem / total_stages, 3),
-            "lightSleepPct": round(light / total_stages, 3),
-            "awakePct": round(awake / total_stages, 3),
+            "deepSleepPct": round(deep / total_sleep_stages, 3),
+            "remSleepPct": round(rem / total_sleep_stages, 3),
+            "lightSleepPct": round(light / total_sleep_stages, 3),
+            "awakePct": round(awake / total_with_awake, 3),
             "deepSleepMin": round(deep / 60),
             "remSleepMin": round(rem / 60),
             "lightSleepMin": round(light / 60),
@@ -107,7 +108,7 @@ def get_sleep_history():
             "totalSleepSeconds": total,
             "totalSleepHours": round(total / 3600, 1),
             "efficiency": s.get("efficiency", 0),
-            "latency": s.get("latency", 0),
+            "latency": round(s.get("latency", 0) / 60, 1),
             "tnt": s.get("restless_periods", 0),
             "readinessScore": readiness.get("score", 0),
             "temperatureDeviation": readiness.get("temperature_deviation", 0),
@@ -178,7 +179,19 @@ def get_stats():
         "latestVascularAge": CARDIO_AGE[-1].get("vascular_age") if CARDIO_AGE else None,
         "totalCardioAgeDays": len(CARDIO_AGE),
         "totalTags": len(TAGS),
+        "age": _load_age(),
     }
+
+
+def _load_age():
+    """Load age from personal_info.json."""
+    import json as _json
+    path = os.path.join(DATA_DIR, "personal_info.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            data = _json.load(f)
+            return data.get("age", 36) if isinstance(data, dict) else 36
+    return 36
 
 
 @router.get("/workouts")
@@ -255,16 +268,42 @@ def get_heart_rate_detail():
 async def get_today():
     """Today's real-time scores + LIVE heart rate from Oura API."""
     from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
     from .live import has_live_token, fetch_oura
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    boston_tz = ZoneInfo("America/New_York")
+    today = datetime.now(boston_tz).strftime("%Y-%m-%d")
 
-    # Today's scores from cached data
+    # Today's scores from cached data — fall back to most recent day if today has no data
     today_sleep = _score_by_day.get(today, None)
     today_readiness = _readiness_by_day.get(today, {})
     today_stress = _stress_by_day.get(today, {})
     today_activity = _activity_by_day.get(today, {})
     today_sleep_session = _sleep_by_day.get(today, {})
+
+    if today_sleep is None and _score_by_day:
+        fallback_day = max(_score_by_day.keys())
+        today_sleep = _score_by_day.get(fallback_day)
+        today_readiness = _readiness_by_day.get(fallback_day, today_readiness)
+        today_stress = _stress_by_day.get(fallback_day, today_stress)
+        today_activity = _activity_by_day.get(fallback_day, today_activity)
+        today_sleep_session = _sleep_by_day.get(fallback_day, today_sleep_session)
+        today = fallback_day
+
+    # If today's sleep session has no HRV or avgHR, grab from most recent session that has them
+    hrv_value = today_sleep_session.get("average_hrv")
+    hrv_source = "today"
+    avg_hr_value = today_sleep_session.get("average_heart_rate")
+    if _sleep_by_day:
+        for day in sorted(_sleep_by_day.keys(), reverse=True):
+            session = _sleep_by_day[day]
+            if hrv_value is None and session.get("average_hrv"):
+                hrv_value = session["average_hrv"]
+                hrv_source = day
+            if avg_hr_value is None and session.get("average_heart_rate"):
+                avg_hr_value = session["average_heart_rate"]
+            if hrv_value is not None and avg_hr_value is not None:
+                break
 
     # Fetch LIVE heart rate from Oura API (last 30 min)
     latest_hr = None
@@ -273,9 +312,9 @@ async def get_today():
 
     if has_live_token():
         try:
-            now = datetime.now()
-            start_dt = (now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S-04:00")
-            end_dt = now.strftime("%Y-%m-%dT%H:%M:%S-04:00")
+            now = datetime.now(boston_tz)
+            start_dt = (now - timedelta(hours=6)).isoformat()
+            end_dt = now.isoformat()
             live_hr = await fetch_oura(
                 "/v2/usercollection/heartrate",
                 {"start_datetime": start_dt, "end_datetime": end_dt}
@@ -309,8 +348,9 @@ async def get_today():
         "stressHigh": today_stress.get("stress_high"),
         "stressMin": round((today_stress.get("stress_high", 0) or 0) / 60),
         "stressSummary": today_stress.get("day_summary"),
-        "hrv": today_sleep_session.get("average_hrv"),
-        "avgHeartRate": today_sleep_session.get("average_heart_rate"),
+        "hrv": hrv_value,
+        "hrvSource": hrv_source,
+        "avgHeartRate": avg_hr_value,
         "latestHeartRate": latest_hr,
         "latestHeartRateTime": latest_hr_time,
         "latestHRSource": latest_source,
@@ -339,23 +379,32 @@ def get_tags():
 
 @router.get("/refresh")
 async def refresh_from_oura():
-    """Pull fresh data from Oura API and update in-memory stores."""
+    """Pull fresh data from Oura API and update ALL in-memory stores."""
     from .live import (
         has_live_token, fetch_sleep_live, fetch_daily_sleep_live,
         fetch_daily_stress_live, fetch_daily_readiness_live, fetch_workouts_live,
+        fetch_daily_activity_live, fetch_daily_resilience_live,
+        fetch_daily_spo2_live, fetch_heartrate_live, fetch_cardiovascular_age_live,
     )
 
     if not has_live_token():
         return {"status": "error", "message": "No Oura token configured"}
 
     global SLEEP_SESSIONS, DAILY_SLEEP, DAILY_READINESS, DAILY_STRESS, WORKOUTS
+    global DAILY_ACTIVITY, DAILY_RESILIENCE, DAILY_SPO2, HEARTRATE, CARDIO_AGE
     global _sleep_by_day, _score_by_day, _readiness_by_day, _stress_by_day
+    global _activity_by_day, _resilience_by_day, _spo2_by_day, _cardio_by_day
 
     sleep = await fetch_sleep_live()
     daily_sleep = await fetch_daily_sleep_live()
     daily_stress = await fetch_daily_stress_live()
     daily_readiness = await fetch_daily_readiness_live()
     workouts = await fetch_workouts_live()
+    daily_activity = await fetch_daily_activity_live()
+    daily_resilience = await fetch_daily_resilience_live()
+    daily_spo2 = await fetch_daily_spo2_live()
+    heartrate = await fetch_heartrate_live()
+    cardio_age = await fetch_cardiovascular_age_live()
 
     if sleep:
         SLEEP_SESSIONS = sleep
@@ -382,6 +431,29 @@ async def refresh_from_oura():
     if workouts:
         WORKOUTS = workouts
 
+    if daily_activity:
+        DAILY_ACTIVITY = daily_activity
+        _activity_by_day.clear()
+        _activity_by_day.update({d["day"]: d for d in daily_activity})
+
+    if daily_resilience:
+        DAILY_RESILIENCE = daily_resilience
+        _resilience_by_day.clear()
+        _resilience_by_day.update({d["day"]: d for d in daily_resilience})
+
+    if daily_spo2:
+        DAILY_SPO2 = daily_spo2
+        _spo2_by_day.clear()
+        _spo2_by_day.update({d["day"]: d for d in daily_spo2})
+
+    if heartrate:
+        HEARTRATE = heartrate
+
+    if cardio_age:
+        CARDIO_AGE = cardio_age
+        _cardio_by_day.clear()
+        _cardio_by_day.update({d["day"]: d for d in cardio_age})
+
     return {
         "status": "ok",
         "refreshed": {
@@ -390,9 +462,148 @@ async def refresh_from_oura():
             "stress_days": len(DAILY_STRESS),
             "readiness_days": len(DAILY_READINESS),
             "workouts": len(WORKOUTS),
+            "activity_days": len(DAILY_ACTIVITY),
+            "resilience_days": len(DAILY_RESILIENCE),
+            "spo2_days": len(DAILY_SPO2),
+            "hr_readings": len(HEARTRATE),
+            "cardio_age_days": len(CARDIO_AGE),
         },
-        "message": "Live data refreshed from Oura API",
+        "message": "All Oura data refreshed from live API",
     }
+
+
+@router.get("/workout")
+async def get_workout(session_type: str = "crossfit"):
+    """Generate AI-powered workout based on real biometrics."""
+    from .workout_ai import generate_workout
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import statistics
+
+    boston_tz = ZoneInfo("America/New_York")
+    today_str = datetime.now(boston_tz).strftime("%Y-%m-%d")
+
+    # Build biometrics context from real data
+    days = sorted(_sleep_by_day.keys())
+    last_30_hrvs = [_sleep_by_day[d].get("average_hrv") for d in days[-30:] if _sleep_by_day[d].get("average_hrv")]
+    last_30_rhrs = [_sleep_by_day[d].get("average_heart_rate") for d in days[-30:] if _sleep_by_day[d].get("average_heart_rate")]
+
+    # Today or most recent day
+    today_score = _score_by_day.get(today_str)
+    if today_score is None and _score_by_day:
+        latest_day = max(_score_by_day.keys())
+    else:
+        latest_day = today_str
+
+    sleep_session = _sleep_by_day.get(latest_day, {})
+    readiness = _readiness_by_day.get(latest_day, {})
+    stress = _stress_by_day.get(latest_day, {})
+
+    # Last 3 days for trend
+    last_3 = []
+    for d in days[-3:]:
+        s = _sleep_by_day[d]
+        last_3.append({
+            "day": d,
+            "sleep_score": _score_by_day.get(d, 0),
+            "hrv": s.get("average_hrv"),
+            "rhr": round(s.get("average_heart_rate", 0), 1) if s.get("average_heart_rate") else None,
+            "readiness": _readiness_by_day.get(d, {}).get("score"),
+            "deep_min": round(s.get("deep_sleep_duration", 0) / 60),
+            "total_hrs": round(s.get("total_sleep_duration", 0) / 3600, 1),
+        })
+
+    # Recovery context
+    hrv_val = sleep_session.get("average_hrv")
+    hrv_bl = round(statistics.mean(last_30_hrvs), 1) if last_30_hrvs else None
+    readiness_score = readiness.get("score", 0)
+
+    if readiness_score > 80 and hrv_val and hrv_bl and hrv_val >= hrv_bl:
+        context = "Fully recovered. Push hard today."
+    elif readiness_score > 65:
+        context = "Decent recovery. Solid work day."
+    elif readiness_score > 50:
+        context = "Under-recovered. Go easier today."
+    else:
+        context = "Low recovery. Active recovery only."
+
+    biometrics = {
+        "sleep_score": _score_by_day.get(latest_day),
+        "readiness": readiness_score,
+        "hrv": hrv_val,
+        "hrv_baseline": hrv_bl,
+        "rhr": round(sleep_session.get("average_heart_rate", 0), 1) if sleep_session.get("average_heart_rate") else None,
+        "rhr_baseline": round(statistics.mean(last_30_rhrs), 1) if last_30_rhrs else None,
+        "stress_min": round((stress.get("stress_high", 0) or 0) / 60),
+        "deep_min": round(sleep_session.get("deep_sleep_duration", 0) / 60),
+        "total_sleep_hrs": round(sleep_session.get("total_sleep_duration", 0) / 3600, 1),
+        "last_3_days": last_3,
+        "recovery_context": context,
+    }
+
+    result = await generate_workout(session_type, biometrics)
+    return result
+
+
+@router.get("/objectives")
+def get_objectives():
+    """List available analysis objectives."""
+    from .insights import OBJECTIVES
+    return {"objectives": {k: {"label": v["label"], "description": v["description"]} for k, v in OBJECTIVES.items()}}
+
+
+@router.get("/insights")
+async def get_insights(model: str = "gemini-2.5-flash", objective: str = "peak_performance"):
+    """AI-powered analysis of Oura biometric data via Gemini."""
+    from .insights import compute_features, analyze_with_gemini, OBJECTIVES
+
+    # Build sleep history in the same format as /sleep-history endpoint
+    days = sorted(_sleep_by_day.keys())
+    sleep_history = []
+    for day in days:
+        s = _sleep_by_day[day]
+        score = _score_by_day.get(day, 0)
+        readiness = _readiness_by_day.get(day, {})
+        stress = _stress_by_day.get(day, {})
+        activity = _activity_by_day.get(day, {})
+        deep = s.get("deep_sleep_duration", 0)
+        rem = s.get("rem_sleep_duration", 0)
+        total = s.get("total_sleep_duration", 0)
+        stress_high = stress.get("stress_high", 0) or 0
+
+        sleep_history.append({
+            "day": day,
+            "sleepScore": score,
+            "hrv": s.get("average_hrv", 0),
+            "avgHeartRate": round(s.get("average_heart_rate", 0), 1),
+            "deepSleepMin": round(deep / 60),
+            "remSleepMin": round(rem / 60),
+            "totalSleepHours": round(total / 3600, 1),
+            "efficiency": s.get("efficiency", 0),
+            "readinessScore": readiness.get("score", 0),
+            "stressMin": round(stress_high / 60),
+            "steps": activity.get("steps", 0),
+        })
+
+    # Get today's data
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    boston_tz = ZoneInfo("America/New_York")
+    today_str = datetime.now(boston_tz).strftime("%Y-%m-%d")
+    today_data = {
+        "sleepScore": _score_by_day.get(today_str),
+        "readinessScore": _readiness_by_day.get(today_str, {}).get("score"),
+        "hrv": _sleep_by_day.get(today_str, {}).get("average_hrv"),
+        "latestHeartRate": None,
+        "stressMin": round((_stress_by_day.get(today_str, {}).get("stress_high", 0) or 0) / 60),
+        "steps": _activity_by_day.get(today_str, {}).get("steps", 0),
+        "spo2Avg": _spo2_by_day.get(today_str, {}).get("spo2_percentage", {}).get("average")
+            if isinstance(_spo2_by_day.get(today_str, {}).get("spo2_percentage"), dict) else None,
+    }
+
+    features = compute_features(sleep_history, [], today_data)
+    result = await analyze_with_gemini(features, model=model, objective=objective)
+    return result
 
 
 @router.get("/status")

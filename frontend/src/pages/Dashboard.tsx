@@ -108,17 +108,20 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      api.get("/api/oura/sleep-history").catch(() => ({ data: [], totalDays: 0 })),
-      api.get("/api/oura/stats").catch(() => null),
-      api.get("/api/oura/stress-detail").catch(() => ({ data: [] })),
-      api.get("/api/oura/workouts").catch(() => ({ data: [] })),
-    ]).then(([sh, st, sd, wo]) => {
-      setTrends(sh.data || []);
-      setStats(st);
-      setStressData(sd.data || []);
-      setWorkouts(wo.data || []);
-      setLoading(false);
+    // Auto-refresh from Oura API first, then load all data
+    api.get("/api/oura/refresh").catch(() => {}).finally(() => {
+      Promise.all([
+        api.get("/api/oura/sleep-history").catch(() => ({ data: [], totalDays: 0 })),
+        api.get("/api/oura/stats").catch(() => null),
+        api.get("/api/oura/stress-detail").catch(() => ({ data: [] })),
+        api.get("/api/oura/workouts").catch(() => ({ data: [] })),
+      ]).then(([sh, st, sd, wo]) => {
+        setTrends(sh.data || []);
+        setStats(st);
+        setStressData(sd.data || []);
+        setWorkouts(wo.data || []);
+        setLoading(false);
+      });
     });
   }, []);
 
@@ -133,7 +136,7 @@ const Dashboard = () => {
   const baselineHRV = stats?.avgHRV ? Math.round(stats.avgHRV) : Math.round(avgOf(baseline14, "hrv"));
   const readiness = latest?.readinessScore ?? 0;
   const vascularAge = stats?.latestVascularAge ?? latest?.vascularAge ?? null;
-  const realAge = 30; // Omar's real age
+  const realAge = 36; // Omar's real age
   const yearsYounger = vascularAge != null ? realAge - vascularAge : null;
 
   const scoreColor = scoreGradient(currentScore);
@@ -386,17 +389,18 @@ const Dashboard = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.06)" />
                 <XAxis dataKey="day" tick={{ fill: "#64748b", fontSize: 10 }} axisLine={{ stroke: "rgba(148,163,184,0.1)" }} tickLine={false}
                        interval={tickInterval} tickFormatter={fmtDate} />
-                <YAxis domain={[30, 100]} tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="score" domain={[30, 100]} tick={{ fill: "#64748b", fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="hrv" orientation="right" tick={{ fill: "#8b5cf6", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <Tooltip content={<DarkTooltip />} />
-                <ReferenceLine y={baselineAvg} stroke="#64748b" strokeDasharray="6 4" strokeWidth={1}
+                <ReferenceLine yAxisId="score" y={baselineAvg} stroke="#64748b" strokeDasharray="6 4" strokeWidth={1}
                                label={{ value: `Baseline ${baselineAvg}`, fill: "#64748b", fontSize: 9, position: "right" }} />
-                <ReferenceLine y={65} stroke="#ef444466" strokeDasharray="4 4" strokeWidth={1}
+                <ReferenceLine yAxisId="score" y={65} stroke="#ef444466" strokeDasharray="4 4" strokeWidth={1}
                                label={{ value: "Danger 65", fill: "#ef444488", fontSize: 9, position: "left" }} />
-                <Area type="monotone" dataKey="sleepScore" fill="url(#dangerZone)" stroke="none" baseValue={30} activeDot={false} />
-                <Area type="monotone" dataKey="sleepScore" fill="url(#scoreGlow)" stroke="none" activeDot={false} />
-                <Line type="monotone" dataKey="sleepScore" stroke={C.blue} strokeWidth={3} dot={false} name="Score"
+                <Area yAxisId="score" type="monotone" dataKey="sleepScore" fill="url(#dangerZone)" stroke="none" baseValue={30} activeDot={false} />
+                <Area yAxisId="score" type="monotone" dataKey="sleepScore" fill="url(#scoreGlow)" stroke="none" activeDot={false} />
+                <Line yAxisId="score" type="monotone" dataKey="sleepScore" stroke={C.blue} strokeWidth={3} dot={false} name="Score"
                       activeDot={{ r: 5, fill: C.blue, stroke: "#0a0e27", strokeWidth: 2 }} />
-                <Line type="monotone" dataKey="hrv" stroke={C.purple} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name="HRV"
+                <Line yAxisId="hrv" type="monotone" dataKey="hrv" stroke={C.purple} strokeWidth={1.5} strokeDasharray="6 3" dot={false} name="HRV (ms)"
                       activeDot={{ r: 4, fill: C.purple, stroke: "#0a0e27", strokeWidth: 2 }} />
               </ComposedChart>
             </ResponsiveContainer>
@@ -526,7 +530,12 @@ const Dashboard = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {workouts.slice(-10).reverse().map((w: any, i: number) => (
+                    {(() => {
+                    const cutoff = new Date();
+                    cutoff.setDate(cutoff.getDate() - 8);
+                    const cutoffStr = cutoff.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                    return workouts.filter((w: any) => w.day >= cutoffStr);
+                  })().map((w: any, i: number) => (
                       <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
                         <td className="py-3 text-slate-400 font-mono text-xs">{w.day}</td>
                         <td className="py-3 text-slate-200 font-medium">{w.activity || "Workout"}</td>

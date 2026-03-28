@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/Skeleton";
 import { api } from "@/lib/api";
@@ -30,7 +31,7 @@ const Debrief = () => {
 
   const submit = async () => {
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
       await api.post("/api/feedback/submit", {
         plan_id: effectivePlanId,
         date: today,
@@ -58,9 +59,13 @@ const Debrief = () => {
 
   if (submitted) {
     return (
-      <div className="fade-in min-h-[80vh] flex flex-col items-center justify-center gap-4 px-6">
-        <CheckCircle className="w-16 h-16 text-success" />
-        <h2 className="text-2xl font-bold">Feedback submitted. Thank you!</h2>
+      <div className="fade-in min-h-[80vh] flex flex-col items-center justify-center gap-6 px-6">
+        <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "rgba(74,222,128,.1)" }}>
+          <CheckCircle className="w-10 h-10 text-emerald-400" />
+        </div>
+        <h2 className="text-2xl font-bold text-white">Recovery feedback logged</h2>
+        <p className="text-sm text-slate-500">YU RestOS will use this to improve your next recovery plan.</p>
+        <Link to="/dashboard"><Button variant="outline" className="mt-2 border-slate-700 text-slate-300">Back to Dashboard</Button></Link>
       </div>
     );
   }

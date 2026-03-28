@@ -2,9 +2,8 @@ from fastapi import APIRouter
 from .prompts import COACHING_SYSTEM_PROMPT, build_coaching_prompt
 from .local_ai import generate_coaching_local
 from .cloud_ai import generate_coaching_cloud
-from drift.engine import detect_drift
-from eight_sleep.mock_data import MOCK_TRENDS
-from checkin.store import get_all_checkins
+from backend.drift.engine import detect_drift_real
+from backend.drift.routes import _build_daily_data
 
 router = APIRouter()
 
@@ -34,9 +33,10 @@ CACHED_LOCAL_RESPONSE = {
 
 @router.get("/generate")
 async def generate_coaching():
-    drift_analysis = detect_drift(MOCK_TRENDS, get_all_checkins())
-    latest_sleep = MOCK_TRENDS[-1]
-    latest_checkin = get_all_checkins()[-1]
+    daily_data = _build_daily_data()
+    drift_analysis = detect_drift_real(daily_data)
+    latest_sleep = daily_data[-1] if daily_data else {}
+    latest_checkin = {"mood": 5, "energy": 5, "stress": 5}
     prompt = build_coaching_prompt(drift_analysis, latest_sleep, latest_checkin)
     result = await generate_coaching_local(COACHING_SYSTEM_PROMPT, prompt)
 
@@ -50,9 +50,10 @@ async def generate_coaching():
 
 @router.get("/xray")
 async def xray_comparison():
-    drift_analysis = detect_drift(MOCK_TRENDS, get_all_checkins())
-    latest_sleep = MOCK_TRENDS[-1]
-    latest_checkin = get_all_checkins()[-1]
+    daily_data = _build_daily_data()
+    drift_analysis = detect_drift_real(daily_data)
+    latest_sleep = daily_data[-1] if daily_data else {}
+    latest_checkin = {"mood": 5, "energy": 5, "stress": 5}
     prompt = build_coaching_prompt(drift_analysis, latest_sleep, latest_checkin)
 
     local_result = await generate_coaching_local(COACHING_SYSTEM_PROMPT, prompt)

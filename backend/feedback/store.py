@@ -1,4 +1,6 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
+BOSTON_TZ = ZoneInfo("America/New_York")
 
 _feedback_store: dict[str, dict] = {}
 
@@ -13,7 +15,7 @@ MOCK_FEEDBACK = {
         "most_helpful_action": "adjust_temperature",
         "least_helpful_action": None,
         "notes": "Slept way better with the cooler bed. Still stressed about midterms though.",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(BOSTON_TZ).isoformat(),
     }
 }
 

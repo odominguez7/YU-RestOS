@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import {
   Activity, Heart, Moon, Brain, Flame, Dumbbell, Clock, TrendingUp,
-  ArrowLeft, Zap, Wind, Droplets, Footprints, Gauge,
+  Zap, Wind, Droplets, Footprints, Gauge,
 } from "lucide-react";
 
 /* ── inject keyframes ── */
@@ -200,30 +200,35 @@ const OuraProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<Interval>("ALL");
+  const [workout, setWorkout] = useState<any>(null);
+  const [workoutLoading, setWorkoutLoading] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      api.get("/api/oura/sleep-history"),
-      api.get("/api/oura/stats"),
-      api.get("/api/oura/workouts"),
-      api.get("/api/oura/stress-detail"),
-      api.get("/api/oura/cardiovascular-age"),
-      api.get("/api/oura/today"),
-    ])
-      .then(([sh, st, wo, sd, ca, td]) => {
-        setSleepHistory(sh.data ?? []);
-        setStats(st);
-        setWorkouts(wo.data ?? []);
-        setStressData(sd.data ?? []);
-        setCardioAge(ca.data ?? []);
-        setTodayData(td);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    // Auto-refresh from Oura API first, then load all data
+    api.get("/api/oura/refresh").catch(() => {}).finally(() => {
+      Promise.all([
+        api.get("/api/oura/sleep-history"),
+        api.get("/api/oura/stats"),
+        api.get("/api/oura/workouts"),
+        api.get("/api/oura/stress-detail"),
+        api.get("/api/oura/cardiovascular-age"),
+        api.get("/api/oura/today"),
+      ])
+        .then(([sh, st, wo, sd, ca, td]) => {
+          setSleepHistory(sh.data ?? []);
+          setStats(st);
+          setWorkouts(wo.data ?? []);
+          setStressData(sd.data ?? []);
+          setCardioAge(ca.data ?? []);
+          setTodayData(td);
+        })
+        .catch((e) => setError(e.message))
+        .finally(() => setLoading(false));
+    });
   }, []);
 
   /* ── derived data ── */
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
   const completeDays = useMemo(() => sleepHistory.filter((d: any) => {
     if (d.day === today && (d.totalSleepHours < 3 || d.activityScore === 0 || d.efficiency < 60)) return false;
     return true;
@@ -273,12 +278,17 @@ const OuraProfile = () => {
     return sliceDays(completeDays, range)
       .filter((d: any) => {
         if (!d.bedtimeStart) return false;
-        const hour = new Date(d.bedtimeStart).getHours();
-        return hour >= 20 || hour <= 6;
+        // Extract hour from the ISO string directly (already in Boston time from Oura)
+        const match = d.bedtimeStart.match(/T(\d{2}):(\d{2})/);
+        if (!match) return false;
+        const hour = parseInt(match[1], 10);
+        return hour >= 18 || hour <= 10;
       })
       .map((d: any) => {
-        const dt = new Date(d.bedtimeStart);
-        let mins = dt.getHours() * 60 + dt.getMinutes();
+        const match = d.bedtimeStart.match(/T(\d{2}):(\d{2})/);
+        const h = parseInt(match![1], 10);
+        const m = parseInt(match![2], 10);
+        let mins = h * 60 + m;
         if (mins > 720) mins -= 1440;
         return { label: fmtDate(d.day), mins, time: fmtTime(d.bedtimeStart) };
       });
@@ -300,7 +310,7 @@ const OuraProfile = () => {
       <div className="text-center space-y-4">
         <p className="text-xl font-bold text-red-400">Failed to load Oura data</p>
         <p className="text-slate-500 text-sm">{error}</p>
-        <Link to="/dashboard"><Button variant="ghost">Back</Button></Link>
+        <Link to="/"><Button variant="ghost">Back</Button></Link>
       </div>
     </div>
   );
@@ -329,19 +339,25 @@ const OuraProfile = () => {
             <span className="text-slate-700">|</span>
             <div className="flex items-center gap-1.5">
               <Brain className="w-3.5 h-3.5 text-violet-400" />
-              <span className="text-[10px] text-slate-500 uppercase font-semibold">HRV</span>
+              <span className="text-[10px] text-slate-500 uppercase font-semibold">HRV{todayData.hrvSource && todayData.hrvSource !== "today" ? <span className="text-[8px] text-slate-600 normal-case ml-0.5">(last night)</span> : ""}</span>
               <span className="text-sm font-black text-violet-400">{todayData.hrv ?? "--"} <span className="text-[9px] text-slate-500">ms</span></span>
             </div>
             <span className="text-slate-700">|</span>
             <div className="flex items-center gap-1.5">
-              <Heart className="w-3.5 h-3.5 text-red-400 animate-pulse" />
-              <span className="text-[10px] text-slate-500 uppercase font-semibold">HR</span>
-              <span className="text-sm font-black text-red-400">{todayData.latestHeartRate ?? "--"} <span className="text-[9px] text-slate-500">bpm</span></span>
-              {todayData.latestHeartRateTime && (
-                <span className="text-[9px] text-slate-600">
-                  {new Date(todayData.latestHeartRateTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" })} ET
-                </span>
-              )}
+              {(() => {
+                const hrTime = todayData.latestHeartRateTime ? new Date(todayData.latestHeartRateTime) : null;
+                const isStale = !hrTime || (Date.now() - hrTime.getTime()) > 6 * 60 * 60 * 1000;
+                return <>
+                  <Heart className={`w-3.5 h-3.5 text-red-400 ${isStale ? "" : "animate-pulse"}`} />
+                  <span className="text-[10px] text-slate-500 uppercase font-semibold">HR{isStale ? <span className="text-[8px] text-slate-600 normal-case ml-0.5">(last synced)</span> : ""}</span>
+                  <span className={`text-sm font-black ${isStale ? "text-red-400/60" : "text-red-400"}`}>{todayData.latestHeartRate ?? "--"} <span className="text-[9px] text-slate-500">bpm</span></span>
+                  {hrTime && (
+                    <span className="text-[9px] text-slate-600">
+                      {hrTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "America/New_York" })} ET
+                    </span>
+                  )}
+                </>;
+              })()}
             </div>
             <span className="text-slate-700">|</span>
             <div className="flex items-center gap-1.5">
@@ -367,7 +383,7 @@ const OuraProfile = () => {
               </div>
             </div>
             <h1 className="text-3xl md:text-5xl font-black tracking-tight text-white">
-              OMAR'S OURA RING
+              OURA RING DATA
             </h1>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest"
@@ -392,53 +408,140 @@ const OuraProfile = () => {
           </div>
         </Glass>
 
+        {/* ═══════ WHAT YOUR BODY IS SAYING — instant, data-driven ═══════ */}
+        {latest && (() => {
+          const insights: { text: string; type: "good" | "warn" | "bad"; question?: string }[] = [];
+          const last3 = allChart.slice(-3);
+          const last7 = allChart.slice(-7);
+          const prior7 = allChart.slice(-14, -7);
+
+          const avg7 = (key: string) => { const v = last7.filter((d: any) => d[key]); return v.length ? v.reduce((s: number, d: any) => s + d[key], 0) / v.length : 0; };
+          const avgP7 = (key: string) => { const v = prior7.filter((d: any) => d[key]); return v.length ? v.reduce((s: number, d: any) => s + d[key], 0) / v.length : 0; };
+          const avg3 = (key: string) => { const v = last3.filter((d: any) => d[key]); return v.length ? v.reduce((s: number, d: any) => s + d[key], 0) / v.length : 0; };
+
+          // HRV trend
+          const hrv7 = avg7("hrv"), hrvP = avgP7("hrv");
+          if (hrvP > 0) {
+            const hrvChg = ((hrv7 - hrvP) / hrvP * 100);
+            if (hrvChg < -15) insights.push({ text: `Your HRV dropped ${Math.abs(Math.round(hrvChg))}% this week. Your nervous system is recovering slower than usual.`, type: "bad", question: "Have you been sleeping less or more stressed than normal?" });
+            else if (hrvChg < -5) insights.push({ text: `HRV is down ${Math.abs(Math.round(hrvChg))}% from last week. Your body is working harder to recover.`, type: "warn" });
+            else if (hrvChg > 10) insights.push({ text: `HRV is up ${Math.round(hrvChg)}% this week. Your body is recovering well.`, type: "good" });
+          }
+
+          // RHR trend (inverse — rising is bad)
+          const rhr7 = avg7("avgHeartRate"), rhrP = avgP7("avgHeartRate");
+          if (rhrP > 0) {
+            const rhrChg = ((rhr7 - rhrP) / rhrP * 100);
+            if (rhrChg > 5) insights.push({ text: `Resting heart rate is up ${Math.round(rhrChg)}%. When your heart works harder at rest, something is off.`, type: "bad", question: "Are you fighting off a cold, or training harder than usual?" });
+            else if (rhr7 < 55) insights.push({ text: `Resting HR at ${Math.round(rhr7)} bpm. That's athlete-level. Your heart is efficient.`, type: "good" });
+          }
+
+          // Sleep duration
+          const sleepHrs = avg7("totalSleepHours");
+          const shortNights = last7.filter((d: any) => d.totalSleepHours && d.totalSleepHours < 6).length;
+          if (shortNights >= 3) insights.push({ text: `${shortNights} out of 7 nights you slept under 6 hours. Sleep debt is real and it compounds.`, type: "bad", question: "What's keeping you up? Work, screens, or just not getting to bed early enough?" });
+          else if (sleepHrs >= 7.5) insights.push({ text: `Averaging ${sleepHrs.toFixed(1)} hours of sleep. Your body has enough time to repair itself.`, type: "good" });
+          else if (sleepHrs < 7) insights.push({ text: `Only ${sleepHrs.toFixed(1)} hours of sleep on average. Your brain needs 7+ hours to flush waste and consolidate memory.`, type: "warn" });
+
+          // Deep sleep
+          const deep7 = avg7("deepSleepMin");
+          if (deep7 < 50) insights.push({ text: `Deep sleep averaging ${Math.round(deep7)} min. This is the phase where your body releases growth hormone and repairs tissue. You need more.`, type: "bad", question: "Are you eating or exercising too close to bedtime?" });
+          else if (deep7 > 80) insights.push({ text: `${Math.round(deep7)} min of deep sleep per night. This is where your body rebuilds itself. You're in a good place.`, type: "good" });
+
+          // Readiness
+          const ready7 = avg7("readinessScore");
+          const readyLow = last7.filter((d: any) => d.readinessScore && d.readinessScore < 65).length;
+          if (readyLow >= 3) insights.push({ text: `Readiness below 65 on ${readyLow} of the last 7 days. Your body is telling you it needs a break.`, type: "bad", question: "Can you take one easier day this week? Sometimes slowing down is the fastest way forward." });
+          else if (ready7 > 80) insights.push({ text: `Readiness averaging ${Math.round(ready7)}. Your body is ready to perform.`, type: "good" });
+
+          // Stress
+          const stress7 = avg7("stressMin");
+          const highStress = last7.filter((d: any) => d.stressMin && d.stressMin > 120).length;
+          if (highStress >= 3) insights.push({ text: `More than 2 hours of high stress on ${highStress} days this week. Chronic stress shrinks the part of your brain that handles memory and learning.`, type: "bad", question: "What's your biggest source of stress right now? Even naming it helps." });
+
+          // Efficiency
+          const eff7 = avg7("efficiency");
+          if (eff7 > 0 && eff7 < 80) insights.push({ text: `Sleep efficiency at ${Math.round(eff7)}%. You're spending too much time in bed awake.`, type: "warn", question: "Do you lie in bed scrolling before sleep? Try getting in bed only when you're actually tired." });
+
+          // Best day callout
+          const bestDay = last7.reduce((best: any, d: any) => (!best || (d.readinessScore || 0) > (best.readinessScore || 0)) ? d : best, null);
+          const worstDay = last7.reduce((worst: any, d: any) => (!worst || (d.readinessScore || 0) < (worst.readinessScore || 0) && d.readinessScore > 0) ? d : worst, null);
+
+          if (insights.length === 0) {
+            insights.push({ text: "Everything looks stable this week. Keep doing what you're doing.", type: "good" });
+          }
+
+          const colors = { good: { bg: "rgba(74,222,128,.06)", border: "rgba(74,222,128,.15)", text: "#4ADE80" }, warn: { bg: "rgba(245,158,11,.06)", border: "rgba(245,158,11,.15)", text: "#FBBF24" }, bad: { bg: "rgba(248,113,113,.06)", border: "rgba(248,113,113,.15)", text: "#F87171" } };
+
+          return (
+            <Glass delay={120}>
+              <h3 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-[.22em] mb-4 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-amber-400" /> What your body is saying
+              </h3>
+              <div className="space-y-3">
+                {insights.map((ins, i) => {
+                  const c = colors[ins.type];
+                  return (
+                    <div key={i} className="rounded-xl p-4" style={{ background: c.bg, border: `1px solid ${c.border}` }}>
+                      <p className="text-sm text-slate-200 leading-relaxed">{ins.text}</p>
+                      {ins.question && (
+                        <p className="text-xs mt-2 italic" style={{ color: c.text }}>{ins.question}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Glass>
+          );
+        })()}
+
         {/* ═══════ VITAL GRID (8 cards — computed from filtered chart range) ═══════ */}
         {chart.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <StatCard icon={Heart} label="Heart Rate"
-              subtitle="Lower is better. Athletes: 40-60 bpm"
+              subtitle="How hard your heart works at rest. Lower = fitter."
               value={avgHR || "--"} unit="bpm"
               spark={sparkPoints(chart, "avgHeartRate")}
               change={pctChange(avgHR, overallAvgHR)}
               color="#F87171" daysLabel={daysLabel} delay={200} />
             <StatCard icon={Brain} label="HRV"
-              subtitle="Higher means better recovery"
+              subtitle="Your nervous system's recharge speed. Higher = more resilient."
               value={avgHRV || "--"} unit="ms"
               spark={sparkPoints(chart, "hrv")}
               change={pctChange(avgHRV, overallAvgHRV)}
               color="#8B5CF6" daysLabel={daysLabel} delay={250} />
             <StatCard icon={Wind} label="Resp Rate"
-              subtitle="Normal: 12-20 breaths/min"
+              subtitle="How fast you breathe during sleep. Stable = calm system."
               value={avgResp || "--"} unit="br/min"
               spark={sparkPoints(chart, "avgRespRate")}
               change={pctChange(avgResp, overallAvgResp)}
               color="#38BDF8" daysLabel={daysLabel} delay={300} />
             <StatCard icon={Droplets} label="SpO2"
-              subtitle="Normal: 95-100%"
+              subtitle="Blood oxygen level. Should stay 95-100%."
               value={avgSpO2 || "--"} unit="%"
               spark={sparkPoints(chart, "spo2Avg")}
               change={pctChange(avgSpO2, overallAvgSpO2)}
               color="#A78BFA" daysLabel={daysLabel} delay={350} />
             <StatCard icon={Moon} label="Deep Sleep"
-              subtitle="Goal: 60-90 min per night"
+              subtitle="When your body repairs muscle and releases growth hormone."
               value={avgDeep || "--"} unit="min"
               spark={sparkPoints(chart, "deepSleepMin")}
               change={pctChange(avgDeep, overallAvgDeep)}
               color="#3B82F6" daysLabel={daysLabel} delay={400} />
             <StatCard icon={TrendingUp} label="Readiness"
-              subtitle="Above 70 = ready to perform"
+              subtitle="Can your body handle a hard day? Above 70 = go for it."
               value={avgReadiness || "--"} unit="/100"
               spark={sparkPoints(chart, "readinessScore")}
               change={pctChange(avgReadiness, overallAvgReadiness)}
               color="#4ADE80" daysLabel={daysLabel} delay={450} />
             <StatCard icon={Footprints} label="Steps"
-              subtitle="Goal: 8,000-10,000 daily"
+              subtitle="Daily movement. Even walking burns more than you think."
               value={avgSteps ? avgSteps.toLocaleString() : "--"} unit="steps"
               spark={sparkPoints(chart, "steps")}
               change={pctChange(avgSteps, overallAvgSteps)}
               color="#FB923C" daysLabel={daysLabel} delay={500} />
             <StatCard icon={Gauge} label="Efficiency"
-              subtitle="Above 85% is good"
+              subtitle="% of time in bed you actually slept. Above 85% = solid."
               value={avgEfficiency || "--"} unit="%"
               spark={sparkPoints(chart, "efficiency")}
               change={pctChange(avgEfficiency, overallAvgEfficiency)}
@@ -449,7 +552,7 @@ const OuraProfile = () => {
         {/* ═══════ 4. SLEEP SCORE TREND ═══════ */}
         <Glass delay={350}>
           <SectionHeader icon={Moon} title="Sleep Score Trend"
-            description="Your overall sleep quality scored 0-100 by Oura. Tracks how well you sleep each night. Above 85 = great, below 65 = something's off." />
+            description="Think of this as your sleep grade. Above 85 means you slept great. Below 65 means something went wrong. The trend matters more than any single night." />
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -460,17 +563,18 @@ const OuraProfile = () => {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
               <XAxis dataKey="label" tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} interval={ti} />
-              <YAxis tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} domain={[40, 100]} />
+              <YAxis yAxisId="score" tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} domain={[40, 100]} />
+              <YAxis yAxisId="hrv" orientation="right" tick={{ fill: "#8B5CF6", fontSize: 10 }} tickLine={false} axisLine={false} />
               <Tooltip content={<Tip />} />
-              <ReferenceLine y={65} stroke="#F87171" strokeDasharray="4 4" strokeOpacity={0.3} />
+              <ReferenceLine yAxisId="score" y={65} stroke="#F87171" strokeDasharray="4 4" strokeOpacity={0.3} />
               {stats?.avgSleepScore && (
-                <ReferenceLine y={stats.avgSleepScore} stroke="#3B82F6" strokeDasharray="6 4" strokeOpacity={0.3}
+                <ReferenceLine yAxisId="score" y={stats.avgSleepScore} stroke="#3B82F6" strokeDasharray="6 4" strokeOpacity={0.3}
                   label={{ value: `Avg ${Math.round(stats.avgSleepScore)}`, fill: "#3B82F666", fontSize: 10, position: "insideTopRight" }} />
               )}
-              <Area type="monotone" dataKey="sleepScore" stroke="#3B82F6" strokeWidth={2} fill="url(#sleepGrad)"
+              <Area yAxisId="score" type="monotone" dataKey="sleepScore" stroke="#3B82F6" strokeWidth={2} fill="url(#sleepGrad)"
                 dot={false} activeDot={{ r: 4, fill: "#3B82F6", stroke: "#0a0e27", strokeWidth: 2 }} name="Sleep Score" />
-              <Area type="monotone" dataKey="hrv" stroke="#8B5CF6" strokeWidth={1.5} strokeDasharray="4 3"
-                fill="none" dot={false} activeDot={{ r: 3, fill: "#8B5CF6" }} name="HRV" />
+              <Area yAxisId="hrv" type="monotone" dataKey="hrv" stroke="#8B5CF6" strokeWidth={1.5} strokeDasharray="4 3"
+                fill="none" dot={false} activeDot={{ r: 3, fill: "#8B5CF6" }} name="HRV (ms)" />
             </AreaChart>
           </ResponsiveContainer>
         </Glass>
@@ -478,7 +582,7 @@ const OuraProfile = () => {
         {/* ═══════ 5. SLEEP STAGES ═══════ */}
         <Glass delay={420}>
           <SectionHeader icon={Moon} title="Sleep Stages"
-            description="How your sleep breaks down each night. Deep sleep repairs your body, REM processes emotions and memory. More deep + REM = better recovery." />
+            description="Your sleep has 4 phases. Deep sleep fixes your body. REM processes your emotions and memories. Light sleep is filler. Awake time is wasted. You want more blue and purple." />
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -517,7 +621,7 @@ const OuraProfile = () => {
         {stressChart.length > 0 && (
           <Glass delay={490}>
             <SectionHeader icon={Zap} title="Stress & Recovery"
-              description="Minutes of high stress vs high recovery each day. Red bars = your body was stressed. Green = active recovery time. Balance matters." />
+              description="Red = your body was in fight-or-flight mode. Green = your body was actively recovering. You want green to outweigh red." />
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={stressChart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
@@ -565,7 +669,7 @@ const OuraProfile = () => {
         {/* ═══════ 7. READINESS + ACTIVITY ═══════ */}
         <Glass delay={560}>
           <SectionHeader icon={TrendingUp} title="Readiness + Activity"
-            description="Readiness = how ready your body is to perform. Activity = how active you were. When readiness drops but activity stays high, you're overtraining." />
+            description="Green = how ready your body is. Blue = how active you were. If blue stays high but green drops, you're pushing too hard." />
           <ResponsiveContainer width="100%" height={280}>
             <AreaChart data={chart.filter((d: any) => d.activityScore > 0)} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -595,7 +699,7 @@ const OuraProfile = () => {
         {/* ═══════ 8. HEART RATE & HRV DETAIL ═══════ */}
         <Glass delay={630}>
           <SectionHeader icon={Heart} title="Heart Rate & HRV"
-            description="Resting heart rate should trend down over time (fitness improving). HRV should trend up (better stress resilience). Watch for sudden changes." />
+            description="Two numbers that tell you how fit you are. Heart rate going down = your heart is getting stronger. HRV going up = your body handles stress better." />
           <ResponsiveContainer width="100%" height={280}>
             <ComposedChart data={chart} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
               <defs>
@@ -627,11 +731,11 @@ const OuraProfile = () => {
         {cardioChart.length > 0 && (
           <Glass delay={700}>
             <SectionHeader icon={Heart} title="Cardiovascular Age"
-              description="Your heart's biological age based on resting metrics. Lower than your actual age (36) means your cardiovascular fitness is above average." />
+              description="How old is your heart compared to your real age? Lower = your heart is younger than you. That's the goal." />
             <div className="flex items-center gap-5 mb-5">
               <div className="text-center">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Actual</p>
-                <p className="text-3xl font-black text-slate-300">36</p>
+                <p className="text-3xl font-black text-slate-300">{stats?.age ?? 36}</p>
               </div>
               <span className="text-slate-600 text-lg">&rarr;</span>
               <div className="text-center">
@@ -641,7 +745,7 @@ const OuraProfile = () => {
               {cardioChart[cardioChart.length - 1]?.vascularAge && (
                 <span className="ml-2 px-3 py-1.5 rounded-full text-xs font-extrabold tracking-wide"
                   style={{ background: "rgba(74,222,128,.12)", color: "#4ADE80" }}>
-                  {36 - cardioChart[cardioChart.length - 1].vascularAge} yrs younger
+                  {(stats?.age ?? 36) - cardioChart[cardioChart.length - 1].vascularAge} yrs younger
                 </span>
               )}
             </div>
@@ -656,8 +760,8 @@ const OuraProfile = () => {
                 <XAxis dataKey="label" tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} interval={tickInterval(cardioChart.length)} />
                 <YAxis tick={{ fill: "#475569", fontSize: 10 }} tickLine={false} axisLine={false} domain={[25, 40]} />
                 <Tooltip content={<Tip />} />
-                <ReferenceLine y={36} stroke="#64748b" strokeDasharray="6 4" strokeOpacity={0.4}
-                  label={{ value: "Actual Age: 36", fill: "#64748b88", fontSize: 10, position: "insideTopRight" }} />
+                <ReferenceLine y={stats?.age ?? 36} stroke="#64748b" strokeDasharray="6 4" strokeOpacity={0.4}
+                  label={{ value: `Actual Age: ${stats?.age ?? 36}`, fill: "#64748b88", fontSize: 10, position: "insideTopRight" }} />
                 <Area type="monotone" dataKey="vascularAge" stroke="#F472B6" strokeWidth={2} fill="url(#caG)"
                   dot={false} activeDot={{ r: 4, fill: "#F472B6", stroke: "#0a0e27", strokeWidth: 2 }} name="Vascular Age" />
               </AreaChart>
@@ -669,7 +773,7 @@ const OuraProfile = () => {
         {bedtimeData.length > 0 && (
           <Glass delay={770}>
             <SectionHeader icon={Clock} title="Bedtime Patterns"
-              description="When you actually go to bed each night. Consistency matters more than the exact time. Big swings hurt your sleep quality." />
+              description="Your brain loves routine. Going to bed at the same time every night is one of the biggest sleep quality levers you have." />
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={bedtimeData} margin={{ top: 5, right: 16, left: -10, bottom: 5 }}>
                 <defs>
@@ -707,15 +811,15 @@ const OuraProfile = () => {
         {latest && (
           <Glass delay={840}>
             <SectionHeader icon={Moon} title="Sleep Contributors"
-              description="What's helping and hurting your sleep score. Low scores here show exactly what to fix." />
+              description="These are the building blocks of your sleep score. The short bars are what's holding you back." />
             <div className="space-y-3">
               {[
-                { label: "Deep Sleep", key: "deepSleepPct", max: 25, color: "#3B82F6" },
-                { label: "REM Sleep", key: "remSleepPct", max: 30, color: "#8B5CF6" },
-                { label: "Efficiency", key: "efficiency", max: 100, color: "#2DD4BF" },
-                { label: "Latency", key: "latency", max: 30, color: "#F59E0B", invert: true },
+                { label: "Deep Sleep", key: "deepSleepMin", max: 120, color: "#3B82F6", suffix: "min" },
+                { label: "REM Sleep", key: "remSleepMin", max: 150, color: "#8B5CF6", suffix: "min" },
+                { label: "Efficiency", key: "efficiency", max: 100, color: "#2DD4BF", suffix: "%" },
+                { label: "Latency", key: "latency", max: 30, color: "#F59E0B", invert: true, suffix: "min" },
                 { label: "Total Sleep", key: "sleepHrs", max: 9, color: "#4ADE80", suffix: "hrs" },
-                { label: "Restfulness", key: "tnt", max: 60, color: "#818CF8", invert: true },
+                { label: "Restfulness", key: "tnt", max: 30, color: "#818CF8", invert: true },
               ].map((c) => {
                 const raw = latest[c.key] ?? 0;
                 const pct = (c as any).invert ? Math.max(0, 100 - (raw / c.max * 100)) : Math.min(100, (raw / c.max * 100));
@@ -739,7 +843,7 @@ const OuraProfile = () => {
         {workouts.length > 0 && (
           <Glass delay={910}>
             <SectionHeader icon={Dumbbell} title="Recent Workouts"
-              description="Your logged workout sessions from Oura. Track intensity, duration, and calories to see how your training lines up with recovery." />
+              description="Your recent training sessions. Hard workouts need good recovery. If intensity is high but sleep is low, you're digging a hole." />
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-sm">
                 <thead>
@@ -753,13 +857,18 @@ const OuraProfile = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {workouts.slice(-10).reverse().map((w: any, i: number) => (
+                  {(() => {
+                    const cutoff = new Date();
+                    cutoff.setDate(cutoff.getDate() - 8);
+                    const cutoffStr = cutoff.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+                    return workouts.filter((w: any) => w.day >= cutoffStr);
+                  })().map((w: any, i: number) => (
                     <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
                       <td className="py-2 px-3 text-slate-400 text-xs">{fmtDate(w.day)}</td>
                       <td className="py-2 px-3 text-white font-semibold text-xs">
                         {(w.activity || "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-300 text-xs">{w.duration ? `${Math.round(w.duration / 60)}m` : "--"}</td>
+                      <td className="py-2 px-3 text-right text-slate-300 text-xs">{w.duration ? `${Math.round(w.duration)}m` : "--"}</td>
                       <td className="py-2 px-3 text-right text-amber-400 font-semibold text-xs">{w.calories ? Math.round(w.calories) : "--"}</td>
                       <td className="py-2 px-3 text-right text-red-400 text-xs">{w.avgHeartRate ?? "--"}</td>
                       <td className="py-2 px-3 text-right">
@@ -779,20 +888,238 @@ const OuraProfile = () => {
           </Glass>
         )}
 
-        {/* ═══════ NAVIGATION ═══════ */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4 pb-10"
+        {/* ═══════ TOMORROW'S WORKOUT ═══════ */}
+        <Glass delay={950}>
+          <SectionHeader icon={Dumbbell} title="Program My Workout"
+            description="AI reads your recovery state and programs the right session. Pick your type and let the data decide the intensity." />
+
+          {!workout ? (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-400 text-center">What do you want to do tomorrow?</p>
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  onClick={() => {
+                    setWorkoutLoading(true);
+                    setWorkout(null);
+                    api.get("/api/oura/workout?session_type=crossfit")
+                      .then(setWorkout)
+                      .catch(() => setWorkout({ error: "Failed to generate" }))
+                      .finally(() => setWorkoutLoading(false));
+                  }}
+                  disabled={workoutLoading}
+                  className="rounded-2xl p-5 border cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+                  style={{ background: "rgba(239,68,68,.06)", border: "1px solid rgba(239,68,68,.2)" }}>
+                  <Dumbbell className="w-7 h-7 text-red-400 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-white">Home CrossFit</p>
+                  <p className="text-[10px] text-slate-500 mt-1">AI programs intensity from your data</p>
+                </button>
+                <button
+                  onClick={() => {
+                    setWorkoutLoading(true);
+                    setWorkout(null);
+                    api.get("/api/oura/workout?session_type=yoga")
+                      .then(setWorkout)
+                      .catch(() => setWorkout({ error: "Failed to generate" }))
+                      .finally(() => setWorkoutLoading(false));
+                  }}
+                  disabled={workoutLoading}
+                  className="rounded-2xl p-5 border cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+                  style={{ background: "rgba(139,92,246,.06)", border: "1px solid rgba(139,92,246,.2)" }}>
+                  <Flame className="w-7 h-7 text-violet-400 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-white">Hot Flow Yoga</p>
+                  <p className="text-[10px] text-slate-500 mt-1">Pre/post guidance for your state</p>
+                </button>
+                <button
+                  onClick={() => {
+                    setWorkoutLoading(true);
+                    setWorkout(null);
+                    api.get("/api/oura/workout?session_type=rest")
+                      .then(setWorkout)
+                      .catch(() => setWorkout({ error: "Failed to generate" }))
+                      .finally(() => setWorkoutLoading(false));
+                  }}
+                  disabled={workoutLoading}
+                  className="rounded-2xl p-5 border cursor-pointer transition-all duration-200 hover:scale-[1.02]"
+                  style={{ background: "rgba(74,222,128,.06)", border: "1px solid rgba(74,222,128,.2)" }}>
+                  <Heart className="w-7 h-7 text-emerald-400 mx-auto mb-2" />
+                  <p className="text-sm font-bold text-white">Rest & Recover</p>
+                  <p className="text-[10px] text-slate-500 mt-1">Micro-interventions to recharge</p>
+                </button>
+              </div>
+              {workoutLoading && (
+                <div className="flex items-center justify-center gap-2 py-4">
+                  <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                  <span className="text-xs text-slate-500">Gemini is programming your workout...</span>
+                </div>
+              )}
+            </div>
+          ) : workout.error ? (
+            <div className="text-center py-4">
+              <p className="text-sm text-red-400">{workout.error}</p>
+              <button onClick={() => setWorkout(null)} className="text-xs text-slate-500 mt-2 underline cursor-pointer border-0 bg-transparent">Try again</button>
+            </div>
+          ) : workout.session_type === "yoga" ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-lg font-bold text-white">{workout.title}</h4>
+                <span className="text-xs text-violet-400 font-bold px-3 py-1 rounded-full" style={{ background: "rgba(139,92,246,.12)" }}>
+                  ~{workout.duration_min} min / ~{workout.estimated_calories} kcal
+                </span>
+              </div>
+              <div className="rounded-xl p-4" style={{ background: "rgba(139,92,246,.06)", border: "1px solid rgba(139,92,246,.15)" }}>
+                <p className="text-[10px] text-violet-400 uppercase tracking-wider font-bold mb-1">Before class</p>
+                <p className="text-sm text-slate-300">{workout.pre_session}</p>
+              </div>
+              <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.06)", border: "1px solid rgba(74,222,128,.15)" }}>
+                <p className="text-[10px] text-emerald-400 uppercase tracking-wider font-bold mb-1">After class</p>
+                <p className="text-sm text-slate-300">{workout.post_session}</p>
+              </div>
+              {workout.hydration_note && (
+                <div className="rounded-xl p-4" style={{ background: "rgba(59,130,246,.06)", border: "1px solid rgba(59,130,246,.15)" }}>
+                  <p className="text-[10px] text-blue-400 uppercase tracking-wider font-bold mb-1">Hydration</p>
+                  <p className="text-sm text-slate-300">{workout.hydration_note}</p>
+                </div>
+              )}
+              <p className="text-xs text-slate-400 italic">{workout.why_good_choice}</p>
+              <button onClick={() => setWorkout(null)} className="text-xs text-slate-600 underline cursor-pointer border-0 bg-transparent">Change session type</button>
+            </div>
+          ) : workout.session_type === "rest" ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-lg font-bold text-white">{workout.title}</h4>
+                <span className="text-xs text-emerald-400 font-bold px-3 py-1 rounded-full" style={{ background: "rgba(74,222,128,.12)" }}>
+                  Recovery Day
+                </span>
+              </div>
+              <div className="rounded-xl p-4" style={{ background: "rgba(74,222,128,.04)", border: "1px solid rgba(74,222,128,.12)" }}>
+                <p className="text-sm text-slate-300 italic">{workout.why_rest}</p>
+              </div>
+              {workout.micro_interventions?.map((item: any, i: number) => (
+                <div key={i} className="rounded-xl p-4" style={{ background: "rgba(255,255,255,.02)", border: "1px solid rgba(255,255,255,.06)" }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold" style={{ color: item.color || "#94a3b8" }}>{item.category}</p>
+                    {item.duration && <span className="text-[10px] text-slate-600">{item.duration}</span>}
+                  </div>
+                  <p className="text-sm font-semibold text-white mb-1">{item.title}</p>
+                  <p className="text-xs text-slate-400">{item.description}</p>
+                  {item.science && <p className="text-[10px] text-slate-500 mt-2 italic">{item.science}</p>}
+                </div>
+              ))}
+              {workout.walk && (
+                <div className="rounded-xl p-4" style={{ background: "rgba(59,130,246,.04)", border: "1px solid rgba(59,130,246,.12)" }}>
+                  <p className="text-[10px] text-blue-400 uppercase tracking-wider font-bold mb-1">Optional Walk</p>
+                  <p className="text-sm text-slate-300">{workout.walk}</p>
+                </div>
+              )}
+              {workout.sleep_protocol && (
+                <div className="rounded-xl p-4" style={{ background: "rgba(139,92,246,.04)", border: "1px solid rgba(139,92,246,.12)" }}>
+                  <p className="text-[10px] text-violet-400 uppercase tracking-wider font-bold mb-1">Tonight's Sleep Protocol</p>
+                  <p className="text-sm text-slate-300">{workout.sleep_protocol}</p>
+                </div>
+              )}
+              <p className="text-[9px] text-slate-600">
+                Generated by Gemini 2.5 Pro at {workout.generated_at ? new Date(workout.generated_at).toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true }) + " ET" : ""}
+              </p>
+              <button onClick={() => setWorkout(null)} className="text-xs text-slate-600 underline cursor-pointer border-0 bg-transparent">Change session type</button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Header */}
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <h4 className="text-xl font-black text-white">{workout.title}</h4>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full"
+                      style={{
+                        background: workout.intensity === "push" ? "rgba(239,68,68,.15)" : workout.intensity === "work" ? "rgba(245,158,11,.15)" : "rgba(74,222,128,.15)",
+                        color: workout.intensity === "push" ? "#F87171" : workout.intensity === "work" ? "#FBBF24" : "#4ADE80",
+                      }}>
+                      {workout.intensity?.toUpperCase()} DAY
+                    </span>
+                    <span className="text-xs text-slate-500">{workout.format}</span>
+                    <span className="text-xs text-slate-500">{workout.duration_min} min</span>
+                    {workout.estimated_calories && <span className="text-xs text-slate-500">~{workout.estimated_calories} kcal</span>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Why this workout */}
+              <div className="rounded-xl p-4" style={{ background: "rgba(139,92,246,.06)", border: "1px solid rgba(139,92,246,.15)" }}>
+                <p className="text-xs text-slate-300 italic">{workout.why_this_workout}</p>
+              </div>
+
+              {/* Mental challenge */}
+              {workout.mental_challenge && (
+                <div className="rounded-xl p-4" style={{ background: "rgba(245,158,11,.06)", border: "1px solid rgba(245,158,11,.15)" }}>
+                  <p className="text-[10px] text-amber-400 uppercase tracking-wider font-bold mb-1">Where you'll want to quit</p>
+                  <p className="text-sm text-slate-300">{workout.mental_challenge}</p>
+                </div>
+              )}
+
+              {/* Warmup */}
+              {workout.warmup && (
+                <div>
+                  <p className="text-[10px] text-amber-400 uppercase tracking-wider font-bold mb-2">Warmup ({workout.warmup.duration_min} min)</p>
+                  <div className="space-y-1">
+                    {workout.warmup.movements?.map((m: string, i: number) => (
+                      <p key={i} className="text-sm text-slate-400">{m}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Main workout */}
+              {workout.workout && (
+                <div className="rounded-xl p-5" style={{ background: "rgba(239,68,68,.04)", border: "1px solid rgba(239,68,68,.15)" }}>
+                  <p className="text-[10px] text-red-400 uppercase tracking-wider font-bold mb-3">Workout</p>
+                  <pre className="text-sm text-white font-mono whitespace-pre-wrap leading-relaxed">{workout.workout.description}</pre>
+                  {workout.workout.notes && (
+                    <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-white/[0.06] italic">{workout.workout.notes}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Cooldown */}
+              {workout.cooldown && (
+                <div>
+                  <p className="text-[10px] text-emerald-400 uppercase tracking-wider font-bold mb-2">Cooldown ({workout.cooldown.duration_min} min)</p>
+                  <div className="space-y-1">
+                    {workout.cooldown.movements?.map((m: string, i: number) => (
+                      <p key={i} className="text-sm text-slate-400">{m}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Target zones */}
+              {workout.target_zones && (
+                <div className="flex gap-3">
+                  {workout.target_zones.zone2_min > 0 && <span className="text-[10px] px-2 py-1 rounded-full font-bold" style={{ background: "rgba(59,130,246,.1)", color: "#60A5FA" }}>Z2: {workout.target_zones.zone2_min} min</span>}
+                  {workout.target_zones.zone3_min > 0 && <span className="text-[10px] px-2 py-1 rounded-full font-bold" style={{ background: "rgba(245,158,11,.1)", color: "#FBBF24" }}>Z3: {workout.target_zones.zone3_min} min</span>}
+                  {workout.target_zones.zone4_min > 0 && <span className="text-[10px] px-2 py-1 rounded-full font-bold" style={{ background: "rgba(239,68,68,.1)", color: "#F87171" }}>Z4: {workout.target_zones.zone4_min} min</span>}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-2">
+                <button onClick={() => setWorkout(null)} className="text-xs text-slate-600 underline cursor-pointer border-0 bg-transparent">Change session type</button>
+                <p className="text-[9px] text-slate-600">
+                  Generated by Gemini 2.5 Pro at {workout.generated_at ? new Date(workout.generated_at).toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", hour12: true }) + " ET" : ""}
+                </p>
+              </div>
+            </div>
+          )}
+        </Glass>
+
+        {/* ═══════ NEXT STEP: DRIFT DETECTION ═══════ */}
+        <div className="flex flex-col items-center gap-3 pt-6 pb-12"
           style={{ animation: "oura-fade-up .7s ease-out 1000ms both" }}>
-          <Link to="/dashboard">
-            <Button variant="outline" size="lg" className="border-slate-700 text-slate-300 hover:border-slate-500 gap-2">
-              <ArrowLeft className="w-4 h-4" /> Dashboard
-            </Button>
-          </Link>
+          <p className="text-[10px] text-slate-600 uppercase tracking-wider font-semibold">Next: see what the data is warning you about</p>
           <Link to="/drift">
-            <button className="px-8 py-3 rounded-2xl text-sm font-extrabold text-white cursor-pointer border-0"
-              style={{ background: "linear-gradient(135deg,#4ADE80,#22C55E)", boxShadow: "0 4px 24px rgba(74,222,128,.25)", transition: "transform .2s,box-shadow .2s" }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.05)"; e.currentTarget.style.boxShadow = "0 8px 32px rgba(74,222,128,.4)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 24px rgba(74,222,128,.25)"; }}>
-              View Drift Analysis &rarr;
+            <button className="px-12 py-4 rounded-2xl text-base font-extrabold text-white cursor-pointer border-0 gap-2"
+              style={{ background: "linear-gradient(135deg, #ef4444, #f59e0b)", boxShadow: "0 4px 24px rgba(239,68,68,.3)", transition: "transform .2s,box-shadow .2s" }}
+              onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.05)"; e.currentTarget.style.boxShadow = "0 8px 32px rgba(239,68,68,.45)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 4px 24px rgba(239,68,68,.3)"; }}>
+              Run Drift Detection &rarr;
             </button>
           </Link>
         </div>

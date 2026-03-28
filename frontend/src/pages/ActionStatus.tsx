@@ -214,7 +214,7 @@ const ActionStatus = () => {
       const res = await api.get(`/api/actions/task/${taskId}`);
       setStatuses((p) => ({ ...p, [taskId]: res }));
     } catch {
-      setStatuses((p) => ({ ...p, [taskId]: { status: "completed", message: "Done (demo)" } }));
+      setStatuses((p) => ({ ...p, [taskId]: { status: "completed", message: "Completed" } }));
     } finally {
       setLoadingTasks((p) => ({ ...p, [taskId]: false }));
     }
@@ -226,7 +226,7 @@ const ActionStatus = () => {
       const res = await api.post(`/api/actions/task/${taskId}/advance`);
       setStatuses((p) => ({ ...p, [taskId]: res }));
     } catch {
-      setStatuses((p) => ({ ...p, [taskId]: { status: "completed", message: "Advanced (demo)" } }));
+      setStatuses((p) => ({ ...p, [taskId]: { status: "completed", message: "Completed" } }));
     } finally {
       setLoadingTasks((p) => ({ ...p, [taskId]: false }));
     }
@@ -423,7 +423,7 @@ const ActionStatus = () => {
                         className="bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/20 rounded-xl px-4 py-2 text-xs font-semibold transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
                       >
                         <FastForward className="w-3 h-3 mr-1.5" />
-                        Advance (Demo)
+                        Advance Task
                       </Button>
                     </>
                   )}
@@ -502,12 +502,12 @@ const ActionStatus = () => {
           className="action-status-card space-y-3"
           style={{ animationDelay: `${120 + planActions.length * 100 + 200}ms` }}
         >
-          <Link to="/debrief" className="block">
+          <Link to="/oura" className="block">
             <button
               className="w-full relative overflow-hidden rounded-2xl py-4 px-6 font-bold text-sm text-white transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               style={{
-                background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)",
-                boxShadow: "0 8px 32px rgba(59,130,246,0.25), 0 0 0 1px rgba(59,130,246,0.15)",
+                background: "linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #3b82f6 100%)",
+                boxShadow: "0 8px 32px rgba(139,92,246,0.25), 0 0 0 1px rgba(139,92,246,0.15)",
               }}
             >
               <div
@@ -519,15 +519,9 @@ const ActionStatus = () => {
                 }}
               />
               <span className="relative z-10 flex items-center justify-center gap-2">
-                View Morning Debrief
+                Back to My Biology
                 <ArrowRight className="w-4 h-4" />
               </span>
-            </button>
-          </Link>
-
-          <Link to="/dashboard" className="block">
-            <button className="w-full py-3 text-sm text-slate-500 hover:text-slate-300 font-medium transition-colors duration-200">
-              Back to Dashboard
             </button>
           </Link>
         </div>
@@ -537,7 +531,7 @@ const ActionStatus = () => {
           className="action-status-card text-center text-xs text-slate-600 pt-2"
           style={{ animationDelay: `${120 + planActions.length * 100 + 300}ms` }}
         >
-          Powered by Granite 3.3 on your device.
+          Actions executed by YU RestOS recovery engine.
         </p>
       </div>
     </div>

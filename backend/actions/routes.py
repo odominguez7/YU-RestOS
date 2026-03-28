@@ -4,18 +4,18 @@ from .engine import (
 )
 from .concierge import get_task_status, simulate_task_progress
 from .product_links import get_product_recommendation
-from drift.engine import detect_drift
-from eight_sleep.mock_data import MOCK_TRENDS
-from checkin.store import get_all_checkins
+from backend.drift.engine import detect_drift_real
+from backend.drift.routes import _build_daily_data
 
 router = APIRouter()
 
 
 @router.get("/plan/generate")
 def create_recovery_plan():
-    drift_analysis = detect_drift(MOCK_TRENDS, get_all_checkins())
-    latest_sleep = MOCK_TRENDS[-1]
-    latest_checkin = get_all_checkins()[-1]
+    daily_data = _build_daily_data()
+    drift_analysis = detect_drift_real(daily_data)
+    latest_sleep = daily_data[-1] if daily_data else {}
+    latest_checkin = {"mood": 5, "energy": 5, "stress": 5}  # passive data only
     plan = generate_recovery_plan(drift_analysis, latest_sleep, latest_checkin)
     return plan.model_dump()
 

@@ -1,13 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from eight_sleep.routes import router as sleep_router
-from checkin.routes import router as checkin_router
-from drift.routes import router as drift_router
-from coaching.routes import router as coaching_router
-from actions.routes import router as actions_router
-from feedback.routes import router as feedback_router
-from oura.routes import router as oura_router
+from backend.eight_sleep.routes import router as sleep_router
+from backend.checkin.routes import router as checkin_router
+from backend.drift.routes import router as drift_router
+from backend.coaching.routes import router as coaching_router
+from backend.actions.routes import router as actions_router
+from backend.feedback.routes import router as feedback_router
+from backend.oura.routes import router as oura_router
+from backend.optimize.routes import router as optimize_router
 
 app = FastAPI(title="YU RestOS", version="2.0.0")
 
@@ -26,6 +27,7 @@ app.include_router(coaching_router, prefix="/api/coaching", tags=["coaching"])
 app.include_router(actions_router, prefix="/api/actions", tags=["actions"])
 app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(oura_router, prefix="/api/oura", tags=["oura"])
+app.include_router(optimize_router, prefix="/api/optimize", tags=["optimize"])
 
 
 @app.get("/api/health")

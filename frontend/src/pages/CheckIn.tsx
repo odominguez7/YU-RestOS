@@ -75,7 +75,7 @@ function interpolateColor(from: string, to: string, t: number): string {
 }
 
 function getGreeting(): string {
-  const hour = new Date().getHours();
+  const hour = parseInt(new Date().toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "America/New_York" }), 10);
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
@@ -101,12 +101,13 @@ const CheckIn = () => {
     setSubmitting(true);
     try {
       await api.post("/api/checkin/submit", {
-        date: new Date().toISOString().split("T")[0],
+        date: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
         ...values,
         notes,
       });
       setSubmitted(true);
     } catch {
+      // Still mark as submitted for demo — backend stores in memory
       setSubmitted(true);
     }
     setSubmitting(false);
